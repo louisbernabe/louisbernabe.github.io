@@ -1,6 +1,6 @@
 
 @media (max-width: 640px) {
- 
+  html { font-size: 125%; }
   /* Bigger type scale, using the tokens both themes already share */
   :root {
     --step--1: 0.95rem;
