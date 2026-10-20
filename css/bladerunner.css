@@ -122,7 +122,7 @@ code, kbd, pre, samp { font-family: var(--font-data); font-size: 0.9em; color: v
 
 .section { padding-block: clamp(4rem, 9vw, 8rem); }
 
-.stack > * + * { margin-top: 1.25rem; }
+.stack > * + * { margin-top: 1.00rem; }
 
 .grid { display: grid; gap: 1.5rem; }
 .grid--2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
