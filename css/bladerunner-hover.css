@@ -1,0 +1,59 @@
+/* ==========================================================================
+   LINK HOVER ADDITION
+   Load AFTER bladerunner.css or bladerunner-sober.css:
+
+     <link rel="stylesheet" href="bladerunner-sober.css">
+     <link rel="stylesheet" href="bladerunner-hover.css">
+
+   Every link rests with a thin underline. On hover or keyboard focus, a
+   brighter line sweeps across it from the left, like a scan passing under
+   the text. Buttons (.btn) and the logo (.brand) keep their own styling.
+   Colours come from your stylesheet's variables, so it suits both editions.
+   ========================================================================== */
+
+:root {
+  --hover-accent: var(--ochre, var(--amber, #c48a4c));
+  --hover-glow: var(--amber-glow, transparent);   /* only the neon edition defines a glow */
+  --hover-text: var(--text, var(--ice, #fff));
+}
+
+a:not(.btn):not(.brand) {
+  text-decoration: none;
+  /* Top layer: the sweeping line. Bottom layer: the resting underline. */
+  background-image:
+    linear-gradient(var(--hover-accent), var(--hover-accent)),
+    linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 100%, 0 100%;
+  background-size: 0% 2px, 100% 1px;
+  -webkit-box-decoration-break: clone;
+          box-decoration-break: clone;   /* the effect follows links that wrap across lines */
+  transition:
+    background-size 0.45s cubic-bezier(0.2, 0.7, 0.2, 1),
+    color 0.25s,
+    text-shadow 0.25s;
+}
+
+a:not(.btn):not(.brand):hover,
+a:not(.btn):not(.brand):focus-visible {
+  color: var(--hover-text);
+  background-size: 100% 2px, 100% 1px;
+  text-shadow: 0 0 14px var(--hover-glow);
+}
+
+/* Navigation: the line replaces the plain border, and stays on the current page */
+.site-nav a,
+.site-nav a:hover,
+.site-nav a[aria-current="page"] {
+  border-bottom-color: transparent;
+}
+
+.site-nav a[aria-current="page"] {
+  color: var(--hover-text);
+  background-size: 100% 2px, 0% 1px;
+}
+
+/* Visitors who prefer reduced motion get the change without the sweep */
+@media (prefers-reduced-motion: reduce) {
+  a:not(.btn):not(.brand) { transition: color 0.01ms, text-shadow 0.01ms; }
+}
