@@ -3,9 +3,9 @@
    Replaces round bullets and plain numbers. Paste this at the end of your
    main stylesheet, or load it as a separate file after it.
 
-   Bulleted lists  a short accent-coloured dash, like a tick on a gauge
+   Bulleted lists  a small accent-coloured chevron, like a forward prompt
    Numbered lists  01, 02, 03 in the monospace font, like terminal output
-   Nested lists    a dimmer, shorter dash
+   Nested lists    a smaller, dimmer chevron
 
    Applies automatically to plain <ul> and <ol> elements (those without a
    class), except inside nav, header and footer. To opt another list in,
@@ -37,16 +37,18 @@
 :is(ul):is(:not([class]):not(nav *, header *, footer *), .list) > li::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 0.9em;
-  width: 0.85em;
-  height: 1px;
-  background: var(--list-accent);
-  transition: width 0.25s;
+  left: 0.15em;
+  top: 0.64em;
+  width: 0.42em;
+  height: 0.42em;
+  border-top: 1.5px solid var(--list-accent);
+  border-right: 1.5px solid var(--list-accent);
+  transform: rotate(45deg);
+  transition: transform 0.25s;
 }
 
 :is(ul):is(:not([class]):not(nav *, header *, footer *), .list) > li:hover::before {
-  width: 1.3em;   /* the dash lengthens when you point at an item */
+  transform: translateX(0.25em) rotate(45deg);   /* the chevron steps forward on hover */
 }
 
 /* ---------- Numbered: 01, 02, 03 ---------- */
@@ -76,8 +78,11 @@
 }
 
 :is(ul):is(:not([class]):not(nav *, header *, footer *), .list) li li::before {
-  width: 0.5em;
-  background: var(--list-dim);
+  top: 0.69em;
+  width: 0.32em;
+  height: 0.32em;
+  border-top-color: var(--list-dim);
+  border-right-color: var(--list-dim);
 }
 
 /* ---------- No markers at all ---------- */
