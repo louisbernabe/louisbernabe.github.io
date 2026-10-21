@@ -16,7 +16,7 @@
    ========================================================================== */
 
 /* ---------- Text ---------- */
-body { text-align: center; }
+body {  }
 
 /* Paragraphs have a maximum width; auto side margins put that column in the middle */
 p,
@@ -40,7 +40,7 @@ header.site-header .container {
   padding-block: 0.9rem;
 }
 
-.site-nav { justify-content: center; }
+.site-nav { }
 
 /* ---------- Tables ---------- */
 th,
