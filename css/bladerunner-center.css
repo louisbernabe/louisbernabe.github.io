@@ -1,0 +1,81 @@
+/* ==========================================================================
+   CENTERING ADDITION
+   Centers the whole site: header, headings, text, lists, buttons, panels,
+   tables and footer.
+
+   Load this LAST, after bladerunner.css (or the sober edition) and after
+   the mobile, hover and lists additions, so it can override them:
+
+     <link rel="stylesheet" href="bladerunner-sober.css">
+     <link rel="stylesheet" href="bladerunner-mobile.css">
+     <link rel="stylesheet" href="bladerunner-hover.css">
+     <link rel="stylesheet" href="bladerunner-lists.css">
+     <link rel="stylesheet" href="bladerunner-center.css">
+
+   To keep a single part left-aligned, add class="align-left" to it.
+   ========================================================================== */
+
+/* ---------- Text ---------- */
+body { text-align: center; }
+
+/* Paragraphs have a maximum width; auto side margins put that column in the middle */
+p,
+.hero__lede { margin-inline: auto; }
+
+img, video { margin-inline: auto; }
+
+/* Code and terminal readouts are easier to read left-aligned */
+pre,
+.readout { text-align: left; }
+
+.align-left { text-align: left; }
+.align-left p { margin-inline: 0; }
+
+/* ---------- Header: logo above, navigation below, both centered ---------- */
+header.site-header .container {
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.35rem 1.5rem;
+  padding-block: 0.9rem;
+}
+
+.site-nav { justify-content: center; }
+
+/* ---------- Tables ---------- */
+th,
+td { text-align: center; }
+
+/* ---------- Lists: markers sit in line with the text, so each item centers ---------- */
+ul, ol { margin-inline: auto; }
+
+ul > li,
+ol > li { padding-left: 0; }
+
+ul > li::before,
+ol > li::before {
+  position: static;
+  display: inline-block;
+}
+
+ul > li::before {
+  margin-right: 0.7em;
+  vertical-align: 0.15em;
+}
+
+ol > li::before {
+  margin-right: 0.8em;
+  vertical-align: 0.05em;
+}
+
+/* Navigation, header and footer lists keep their own layout */
+nav li::before,
+header li::before,
+footer li::before,
+.site-nav li::before,
+.list-plain > li::before { content: none; }
+
+/* ---------- Small screens ---------- */
+@media (max-width: 640px) {
+  header.site-header .container { align-items: center; }
+}
