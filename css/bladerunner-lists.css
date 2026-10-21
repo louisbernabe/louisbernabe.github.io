@@ -1,15 +1,15 @@
 /* ==========================================================================
    LISTS ADDITION
    Replaces round bullets and plain numbers. Paste this at the end of your
-   main stylesheet, or load it as a separate file after it.
+   main stylesheet, or load it as a separate file AFTER it.
 
    Bulleted lists  a small accent-coloured chevron, like a forward prompt
    Numbered lists  01, 02, 03 in the monospace font, like terminal output
    Nested lists    a smaller, dimmer chevron
 
-   Applies automatically to plain <ul> and <ol> elements (those without a
-   class), except inside nav, header and footer. To opt another list in,
-   give it class="list". To remove markers entirely, use class="list-plain".
+   Applies to every <ul> and <ol> on the page, whatever its class, except
+   lists inside nav, header and footer (and .site-nav), which stay plain.
+   For any other list you want without markers, use class="list-plain".
    Colours come from your stylesheet's variables, so it suits both editions.
    ========================================================================== */
 
@@ -19,22 +19,23 @@
   --list-mono: var(--font-data, "Courier New", monospace);
 }
 
-/* ---------- The list itself ---------- */
-:is(ul, ol):is(:not([class]):not(nav *, header *, footer *), .list) {
+/* ---------- Remove the browser's own markers ---------- */
+ul, ol {
   list-style: none;
   padding-left: 0;
   margin: 0 0 1.25em;
-  max-width: var(--measure, 66ch);
 }
 
-:is(ul, ol):is(:not([class]):not(nav *, header *, footer *), .list) > li {
+ul > li,
+ol > li {
+  list-style: none;
   position: relative;
   padding-left: 1.9em;
   margin-bottom: 0.6em;
 }
 
-/* ---------- Bulleted: a thin dash ---------- */
-:is(ul):is(:not([class]):not(nav *, header *, footer *), .list) > li::before {
+/* ---------- Bulleted: a small chevron ---------- */
+ul > li::before {
   content: "";
   position: absolute;
   left: 0.15em;
@@ -47,21 +48,19 @@
   transition: transform 0.25s;
 }
 
-:is(ul):is(:not([class]):not(nav *, header *, footer *), .list) > li:hover::before {
-  transform: translateX(0.25em) rotate(45deg);   /* the chevron steps forward on hover */
+ul > li:hover::before {
+  transform: translateX(0.25em) rotate(45deg);   /* steps forward on hover */
 }
 
 /* ---------- Numbered: 01, 02, 03 ---------- */
-:is(ol):is(:not([class]):not(nav *, header *, footer *), .list) {
-  counter-reset: item;
-}
+ol { counter-reset: item; }
 
-:is(ol):is(:not([class]):not(nav *, header *, footer *), .list) > li {
+ol > li {
   counter-increment: item;
   padding-left: 2.6em;
 }
 
-:is(ol):is(:not([class]):not(nav *, header *, footer *), .list) > li::before {
+ol > li::before {
   content: counter(item, decimal-leading-zero);
   position: absolute;
   left: 0;
@@ -73,11 +72,10 @@
 }
 
 /* ---------- Nested lists: quieter ---------- */
-:is(ul, ol):is(:not([class]):not(nav *, header *, footer *), .list) :is(ul, ol) {
-  margin: 0.6em 0 0.2em;
-}
+li > ul,
+li > ol { margin: 0.6em 0 0.2em; }
 
-:is(ul):is(:not([class]):not(nav *, header *, footer *), .list) li li::before {
+ul ul > li::before {
   top: 0.69em;
   width: 0.32em;
   height: 0.32em;
@@ -85,16 +83,24 @@
   border-right-color: var(--list-dim);
 }
 
-/* ---------- No markers at all ---------- */
+/* ---------- Navigation, header, footer and .list-plain stay plain ---------- */
+nav ul, nav ol,
+header ul, header ol,
+footer ul, footer ol,
+.site-nav ul,
 .list-plain {
-  list-style: none;
-  padding: 0;
   margin: 0;
 }
 
+nav li, header li, footer li,
+.site-nav li,
 .list-plain > li {
-  padding: 0;
-  margin: 0;
+  padding-left: 0;
+  margin-bottom: 0;
 }
 
-.list-plain > li::before { content: none; }
+nav li::before, header li::before, footer li::before,
+.site-nav li::before,
+.list-plain > li::before {
+  content: none;
+}
