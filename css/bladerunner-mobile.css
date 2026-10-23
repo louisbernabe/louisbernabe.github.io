@@ -30,14 +30,27 @@
   .hero__lede { max-width: none; }
 
   /* Long headline words must wrap rather than push the page sideways */
+  /* Headings: smaller, tighter, and less space around them */
   h1, h2, h3, h4 {
-    letter-spacing: 0.08em;
+    margin-bottom: 0.4em;
+    line-height: 1.15;
+    letter-spacing: 0.05em;
     overflow-wrap: anywhere;
     hyphens: auto;
   }
 
-  .hero { padding-block: 4.5rem 3.5rem; }
-  .hero__lede { font-size: var(--step-1); }
+  h1 { font-size: clamp(1.6rem, 7vw, 2rem); }
+  h2 { font-size: clamp(1.3rem, 5.5vw, 1.55rem); }
+  h3 { font-size: 1.2rem; }
+  h4 { font-size: 1rem; }
+
+  .hero { padding-block: 3rem 2.5rem; }
+  .hero__title {
+    font-size: clamp(2rem, 9.5vw, 2.75rem);
+    line-height: 1.1;
+    margin-bottom: 0.35em;
+  }
+  .hero__lede { font-size: 1.2rem; margin-bottom: 1.5rem; }
 
   /* Easier to hit with a thumb */
   .site-nav { gap: 0.25rem 1.5rem; }
