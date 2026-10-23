@@ -1,0 +1,97 @@
+/* ==========================================================================
+   TOP BAR ADDITION
+   Turns one unordered list into a horizontal navigation bar fixed to the
+   top of the page. Load it after your other stylesheets.
+
+   HTML (put it right after <body>):
+
+     <ul class="topbar">
+       <li><a href="/">Home</a></li>
+       <li><a href="/work">Work</a></li>
+       <li><a href="/contact" aria-current="page">Contact</a></li>
+     </ul>
+
+   Only the list that has class="topbar" becomes the bar; every other list
+   on the page stays a normal list. The bar lines up with the 1080px content
+   column, scrolls sideways on narrow screens if the links don't fit, and
+   marks the current page when a link has aria-current="page".
+
+   Colours come from your stylesheet's variables, so it suits the sober,
+   neon and light editions. If you also keep the .site-header from the main
+   stylesheet, remove it or the two bars will overlap.
+   ========================================================================== */
+
+:root {
+  --topbar-height: 3.5rem;
+}
+
+/* ---------- The bar ---------- */
+ul.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;     /* use center for a centered menu */
+  gap: 0 2rem;
+
+  height: var(--topbar-height);
+  margin: 0;
+  padding: 0 max(1.25rem, calc((100% - 1080px) / 2));   /* aligns with the content column */
+
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;           /* hidden scrollbar; still scrolls by touch or trackpad */
+
+  background: var(--ink, var(--void, #0f1112));
+  background: color-mix(in srgb, var(--ink, var(--void, #0f1112)) 88%, transparent);
+  border-bottom: 1px solid var(--line, var(--steel-line, #34393a));
+  -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
+}
+
+ul.topbar::-webkit-scrollbar { display: none; }
+
+/* Page content starts below the bar, and anchor links don't hide beneath it */
+body:has(ul.topbar) { padding-top: var(--topbar-height); }
+html:has(ul.topbar) { scroll-padding-top: calc(var(--topbar-height) + 1rem); }
+
+/* ---------- The items: no markers, no list spacing ---------- */
+ul.topbar > li {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+ul.topbar > li::before { content: none; }
+
+/* ---------- The links ---------- */
+ul.topbar a {
+  display: block;
+  padding: 0.35rem 0;
+  font-family: var(--font-ui, var(--font-display, "Arial Narrow", sans-serif));
+  font-weight: 500;
+  font-size: 1.1rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--dim, #8b867b);
+}
+
+ul.topbar a:hover,
+ul.topbar a:focus-visible,
+ul.topbar a[aria-current="page"] {
+  color: var(--text, var(--ice, #fff));
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 640px) {
+  ul.topbar { gap: 0 1.5rem; padding-inline: 1rem; }
+  ul.topbar a { font-size: 1.15rem; padding: 0.6rem 0; }
+}
