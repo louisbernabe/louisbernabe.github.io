@@ -45,12 +45,21 @@ ul:is(.contact, :has(a[href^="mailto:"], a[href*="github.com"])):not(.topbar) {
 
 ul:is(.contact, :has(a[href^="mailto:"], a[href*="github.com"])):not(.topbar)::-webkit-scrollbar { display: none; }
 
-/* The end of the page stays visible above the bar */
-body:has(ul:is(.contact, :has(a[href^="mailto:"], a[href*="github.com"])):not(.topbar)) {
-  padding-bottom: var(--topbar-height, 3.5rem);
+/* The end of the page stays visible above the bar.
+   (CSS does not allow :has() inside :has(), so the list is described directly here.) */
+body:has(
+  ul.contact,
+  ul:not(.topbar) > li a[href^="mailto:"],
+  ul:not(.topbar) > li a[href*="github.com"]
+) {
+  padding-bottom: calc(var(--topbar-height, 3.5rem) + 1rem);
 }
 
-html:has(ul:is(.contact, :has(a[href^="mailto:"], a[href*="github.com"])):not(.topbar)) {
+html:has(
+  ul.contact,
+  ul:not(.topbar) > li a[href^="mailto:"],
+  ul:not(.topbar) > li a[href*="github.com"]
+) {
   scroll-padding-bottom: calc(var(--topbar-height, 3.5rem) + 1rem);
 }
 
