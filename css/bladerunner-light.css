@@ -1,0 +1,70 @@
+/* ==========================================================================
+   LIGHT ADDITION (for the sober edition)
+   White background, grey text. Load it after bladerunner-sober.css and
+   after your other additions:
+
+     <link rel="stylesheet" href="bladerunner-sober.css">
+     <link rel="stylesheet" href="bladerunner-light.css">
+
+   Most of the change comes from the colour variables at the top. The rules
+   below them cover the few colours that were written in directly.
+   The accents are darkened from the dark edition, because pale ochre and
+   steel blue are hard to read on white.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  --ink: #ffffff;                       /* page background */
+  --concrete: #f3f2ef;
+  --slab: #f7f6f3;                      /* panels */
+  --line: #d9d6cf;                      /* borders and rules */
+
+  --text: #4b5054;                      /* main grey text */
+  --dim: #727779;                       /* secondary text */
+
+  --ochre: #9a6523;                     /* accent, darkened for contrast on white */
+  --ochre-soft: rgba(154, 101, 35, 0.10);
+  --steel: #3f6b73;                     /* links */
+  --rust: #a8553f;
+}
+
+/* ---------- Page: plain white, with a very faint dark grain ---------- */
+body {
+  background-color: var(--ink);
+  background-image: none;
+}
+
+body::before {
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* ---------- Header ---------- */
+.site-header { background: rgba(255, 255, 255, 0.88); }
+
+/* ---------- Panels, buttons, forms, tables ---------- */
+.panel:hover { background: #efede8; border-color: #bdb9b0; border-left-color: var(--ochre); }
+
+.btn--primary:hover { background: #84531b; border-color: #84531b; }
+
+input::placeholder,
+textarea::placeholder { color: #9a9fa2; }
+
+/* ---------- Terminal readout: a light card instead of a dark one ---------- */
+.readout {
+  background: #f6f4f0;
+  border-color: var(--line);
+}
+
+.scanlines::after {
+  background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 3px);
+}
+
+/* ---------- Pointer light (bladerunner-links-fx.js): a soft shadow on white ---------- */
+html .btn:not([data-no-glow])::after,
+html .site-nav a:not([data-no-glow])::after,
+html a.panel:not([data-no-glow])::after,
+html a[data-glow]::after {
+  background: radial-gradient(circle 90px at var(--mx, 50%) var(--my, 50%), rgba(0, 0, 0, 0.07), transparent 70%);
+}
