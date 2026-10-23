@@ -1,6 +1,16 @@
+/* ==========================================================================
+   MOBILE TEXT ADDITION
+   Load AFTER bladerunner.css or bladerunner-sober.css:
+
+     <link rel="stylesheet" href="bladerunner-sober.css">
+     <link rel="stylesheet" href="bladerunner-mobile.css">
+
+   On phones: larger type, text running the full width of the screen,
+   and bigger tap targets. Desktop is untouched.
+   ========================================================================== */
 
 @media (max-width: 640px) {
-  html { font-size: 112.5%; }
+
   /* Bigger type scale, using the tokens both themes already share */
   :root {
     --step--1: 0.95rem;
@@ -11,28 +21,28 @@
     --step-4: clamp(2.8rem, 14vw, 4.5rem);
     --measure: 100%;
   }
- 
+
   body { line-height: 1.7; }
- 
+
   /* Let text use the full width instead of stopping at a desktop line length */
   .container { width: calc(100% - 2rem); }
   p,
   .hero__lede { max-width: none; }
- 
+
   /* Long headline words must wrap rather than push the page sideways */
   h1, h2, h3, h4 {
     letter-spacing: 0.08em;
     overflow-wrap: anywhere;
     hyphens: auto;
   }
- 
+
   .hero { padding-block: 4.5rem 3.5rem; }
   .hero__lede { font-size: var(--step-1); }
- 
+
   /* Easier to hit with a thumb */
   .site-nav { gap: 0.25rem 1.5rem; }
   .site-nav a { padding: 0.55rem 0; font-size: 1.15rem; }
- 
+
   .btn {
     display: block;
     width: 100%;
@@ -40,14 +50,36 @@
     text-align: center;
     font-size: 1.2rem;
   }
- 
+
   /* 16px minimum stops iOS Safari zooming in when a field is focused */
   label { font-size: 1.05rem; }
   input, textarea, select { padding: 0.9rem 1rem; font-size: 1rem; }
- 
+
   /* Wide tables scroll sideways inside themselves, not the whole page */
   table, .data-table { display: block; overflow-x: auto; white-space: nowrap; }
   td, th { padding: 0.75rem 0.9rem; }
- 
+
   .readout { font-size: 1rem; }
+
+  /* Top bar (bladerunner-topbar.css): smaller links, so they all fit in one row
+     with no sideways scrolling. The type size follows the screen width. */
+  html ul.topbar {
+    justify-content: space-between;
+    gap: 0 0.5rem;
+    padding-inline: 0.75rem;
+    overflow: hidden;
+  }
+
+  html ul.topbar > li {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  html ul.topbar a {
+    padding: 0.4rem 0;
+    font-size: clamp(0.62rem, 3.2vw, 0.85rem);
+    letter-spacing: 0.06em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
