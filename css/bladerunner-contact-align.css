@@ -1,0 +1,26 @@
+/* ==========================================================================
+   CONTACT LIST ALIGNMENT ADDITION
+   Makes the email / GitHub list start at the same left edge as the items in
+   the top bar. Load it after bladerunner-lists.css and bladerunner-topbar.css.
+
+   It finds the list by itself: any <ul> that contains a mailto: link or a
+   github.com link. If your email and GitHub are plain text (no links), give
+   the list class="contact" instead.
+   ========================================================================== */
+
+:root {
+  /* The same left gutter the top bar uses: lines up with the 1080px column */
+  --page-gutter: max(1.25rem, calc((100% - 1080px) / 2));
+}
+
+/* The marker starts exactly at the edge, like the first letter of a top-bar link */
+ul:is(.contact, :has(a[href^="mailto:"], a[href*="github.com"])):not(.topbar) > li::before {
+  left: 0;
+}
+
+/* A list sitting directly on the page, outside any centered wrapper, is moved
+   in by the same gutter. Lists inside .container, or inside a top-level block
+   centered by bladerunner-center.css, already sit on that edge. */
+ul:is(.contact, :has(a[href^="mailto:"], a[href*="github.com"])):not(.topbar):not(.container *, body > :is(main, section, article, footer, div) *) {
+  padding-left: var(--page-gutter);
+}
