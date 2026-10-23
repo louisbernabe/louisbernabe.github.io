@@ -1,0 +1,68 @@
+/* ==========================================================================
+   PARAGRAPHS ADDITION
+   A readable serif for body text, and book-style indentation.
+   Load it after your other stylesheets:
+
+     <link rel="stylesheet" href="bladerunner-sober.css">
+     <link rel="stylesheet" href="bladerunner-paragraphs.css">
+
+   Indentation follows the printing convention: the first paragraph after a
+   heading or other element starts flush left, and each paragraph that
+   follows another is indented, with only a thin gap between them.
+   Paragraphs inside panels, the footer and the hero subtitle are never
+   indented. For one paragraph that should not be, use class="no-indent".
+   ========================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;1,400&display=swap");
+
+:root {
+  --font-paragraph: "Newsreader", "Source Serif 4", Georgia, "Times New Roman", serif;
+  --paragraph-indent: 1.6em;
+}
+
+/* ---------- Font and rhythm ---------- */
+p {
+  font-family: var(--font-paragraph);
+  /* A little larger than the sans-serif body, because this serif has a smaller x-height */
+  font-size: calc(var(--step-0, 1.0625rem) * 1.08);
+  font-weight: 400;
+  line-height: 1.75;
+  color: var(--text, var(--ice, inherit));
+  text-align: left;
+  text-wrap: pretty;               /* avoids a single word alone on the last line */
+  margin: 0 0 1.25em;
+}
+
+p em, p i { font-style: italic; }
+p strong, p b { font-weight: 500; }
+
+/* ---------- Indentation ---------- */
+p + p {
+  text-indent: var(--paragraph-indent);
+  margin-top: 0;
+}
+
+/* Consecutive paragraphs sit close together, as in a printed book */
+p:has(+ p) { margin-bottom: 0.35em; }
+
+/* Places where indenting would look wrong */
+.panel p,
+.readout p,
+li p,
+td p,
+.site-footer p,
+.hero__lede,
+.no-indent {
+  text-indent: 0;
+}
+
+.panel p + p,
+li p + p { margin-top: 0.6em; }
+
+.panel p:has(+ p),
+li p:has(+ p) { margin-bottom: 0; }
+
+/* ---------- Small screens: a slightly shallower indent ---------- */
+@media (max-width: 640px) {
+  :root { --paragraph-indent: 1.25em; }
+}
