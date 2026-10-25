@@ -3,7 +3,7 @@
 
    The last item of the top bar becomes a single flag that leads to the same
    page in the other language: the French flag on English pages, the British
-   flag on French pages. It sits close to the last menu item.
+   flag on French pages. It sits at the far right of the bar.
 
    Load it after bladerunner-topbar.css and bladerunner-mobile.css:
 
@@ -31,17 +31,16 @@
    screen readers announce, and title gives sighted visitors a tooltip.
    ========================================================================== */
 
-/* ---------- Spacing: the flag follows the last menu item closely ---------- */
+/* ---------- Position: the flag sits at the far right of the bar ---------- */
 
-/* The bar spaces its items 2rem apart; the negative margin cancels part of
-   that space, leaving --lang-gap between the last item and the flag. */
-:root { --lang-gap: 0.9rem; }
-
+/* An automatic left margin takes all the free space in the bar, pushing the
+   flag to the right edge, level with the right edge of the content column. */
 ul.topbar > li:last-child:has(> a[hreflang]) {
-  margin-left: calc(var(--lang-gap) - 2rem);
+  margin-left: auto;
 }
 
-/* On phones the items are spread evenly across the bar: no adjustment needed */
+/* On phones the items are spread evenly across the bar, with the flag last
+   at the right: the automatic margin is switched off there */
 @media (max-width: 640px) {
   ul.topbar > li:last-child:has(> a[hreflang]) { margin-left: 0; }
 }
