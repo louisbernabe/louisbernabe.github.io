@@ -1,0 +1,91 @@
+/* ==========================================================================
+   FLAG LANGUAGE TOGGLE (stands alone: no other language file, no script)
+
+   The last item of the top bar becomes a single flag that leads to the same
+   page in the other language: the French flag on English pages, the British
+   flag on French pages. It sits close to the last menu item.
+
+   Load it after bladerunner-topbar.css and bladerunner-mobile.css:
+
+     <link rel="stylesheet" href="bladerunner-topbar.css">
+     <link rel="stylesheet" href="bladerunner-flag-toggle.css">
+
+   HTML: make the LAST item of the top bar a link with an hreflang attribute.
+   The flag is chosen by that attribute.
+
+   On an English page (shows the French flag, leads to the French page):
+
+     <ul class="topbar">
+       <li><a href="/">Home</a></li>
+       <li><a href="/work">Work</a></li>
+       <li><a href="/fr/work" hreflang="fr" lang="fr" aria-label="Français" title="Français">FR</a></li>
+     </ul>
+
+   On the matching French page (shows the British flag, leads to the English page):
+
+       <li><a href="/work" hreflang="en" lang="en" aria-label="English" title="English">EN</a></li>
+
+   Write each page's own counterpart in the href: the stylesheet cannot know
+   which page matches which. The letters FR / EN stay in the link, hidden
+   here, as a fallback if this stylesheet does not load; aria-label is what
+   screen readers announce, and title gives sighted visitors a tooltip.
+   ========================================================================== */
+
+/* ---------- Spacing: the flag follows the last menu item closely ---------- */
+
+/* The bar spaces its items 2rem apart; the negative margin cancels part of
+   that space, leaving --lang-gap between the last item and the flag. */
+:root { --lang-gap: 0.9rem; }
+
+ul.topbar > li:last-child:has(> a[hreflang]) {
+  margin-left: calc(var(--lang-gap) - 2rem);
+}
+
+/* On phones the items are spread evenly across the bar: no adjustment needed */
+@media (max-width: 640px) {
+  ul.topbar > li:last-child:has(> a[hreflang]) { margin-left: 0; }
+}
+
+/* ---------- The link becomes the flag ---------- */
+ul.topbar > li:last-child > a[hreflang] {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0;
+  font-size: 0;                 /* hides the letters */
+  line-height: 0;
+  letter-spacing: 0;
+  background-image: none;       /* no link underline under a flag */
+}
+
+ul.topbar > li:last-child > a[hreflang]::before {
+  content: "";
+  display: block;
+  flex: none;
+  width: 1.5rem;
+  height: 1rem;
+  border-radius: 2px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: 0 0 0 1px var(--line, var(--steel-line, #34393a));   /* keeps the white stripe visible on white */
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+ul.topbar > li:last-child > a[hreflang]:hover::before,
+ul.topbar > li:last-child > a[hreflang]:focus-visible::before { opacity: 1; }
+
+/* France: blue, white, red */
+ul.topbar > li:last-child > a[hreflang="fr"]::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2'%3E%3Crect width='1' height='2' fill='%230055A4'/%3E%3Crect x='1' width='1' height='2' fill='%23fff'/%3E%3Crect x='2' width='1' height='2' fill='%23EF4135'/%3E%3C/svg%3E");
+}
+
+/* United Kingdom: the Union Jack */
+ul.topbar > li:last-child > a[hreflang="en"]::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 30'%3E%3CclipPath id='t'%3E%3Cpath d='M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z'/%3E%3C/clipPath%3E%3Cpath d='M0,0 v30 h60 v-30 z' fill='%23012169'/%3E%3Cpath d='M0,0 L60,30 M60,0 L0,30' stroke='%23fff' stroke-width='6'/%3E%3Cpath d='M0,0 L60,30 M60,0 L0,30' clip-path='url(%23t)' stroke='%23C8102E' stroke-width='4'/%3E%3Cpath d='M30,0 v30 M0,15 h60' stroke='%23fff' stroke-width='10'/%3E%3Cpath d='M30,0 v30 M0,15 h60' stroke='%23C8102E' stroke-width='6'/%3E%3C/svg%3E");
+}
+
+/* Small screens: a slightly smaller flag, so the whole bar still fits in one row */
+@media (max-width: 640px) {
+  ul.topbar > li:last-child > a[hreflang]::before { width: 1.35rem; height: 0.9rem; }
+}
