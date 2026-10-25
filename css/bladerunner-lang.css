@@ -1,50 +1,44 @@
 /* ==========================================================================
    LANGUAGE SWITCH ADDITION
-   An EN | FR switch at the right end of the top bar.
+   One link at the right end of the top bar. On the English site it reads
+   FR and leads to the French site; on the French site it reads EN.
    Load it after bladerunner-topbar.css and bladerunner-mobile.css:
 
      <link rel="stylesheet" href="bladerunner-topbar.css">
      <link rel="stylesheet" href="bladerunner-lang.css">
 
-   Add one more item to the end of your top bar list:
+   Add one more item to the end of your top bar list. On an English page:
 
      <ul class="topbar">
        <li><a href="/">Home</a></li>
        ...
        <li class="lang">
-         <a href="/en/" data-lang="en" hreflang="en" lang="en">EN</a>
-         <a href="/fr/" data-lang="fr" hreflang="fr" lang="fr">FR</a>
+         <a href="/fr/" hreflang="fr" lang="fr" aria-label="Français">FR</a>
        </li>
      </ul>
 
-   The current language is highlighted through aria-current="true" on its
-   link. Set it by hand on each page, or let bladerunner-lang.js do it and
-   also fill in the links (see that file).
+   On a French page, the link reads EN and points to the English page:
+
+       <li class="lang">
+         <a href="/en/" hreflang="en" lang="en" aria-label="English">EN</a>
+       </li>
+
+   Or add the single link once, with data-lang-toggle, and let
+   bladerunner-lang.js fill in the label and the address on every page.
    ========================================================================== */
 
-/* The switch sits at the far right of the bar */
+/* The switch sits at the far right of the bar, on the same gutter as the left edge */
 ul.topbar > li.lang {
-  display: flex;
-  align-items: center;
   margin-left: auto;
 }
 
 ul.topbar > li.lang a {
-  padding: 0.35rem 0.7rem;
+  padding: 0.35rem 0;
   letter-spacing: 0.14em;
+  color: var(--ochre, var(--amber, #c48a4c));   /* the accent colour sets it apart from the menu links */
 }
 
-/* A thin divider between the two languages */
-ul.topbar > li.lang a + a {
-  border-left: 1px solid var(--line, var(--steel-line, #34393a));
-}
-
-/* The language you are reading in */
-ul.topbar > li.lang a[aria-current] {
-  color: var(--ochre, var(--amber, #c48a4c));
-}
-
-/* Small screens: a tighter switch, so the whole bar still fits in one row */
-@media (max-width: 640px) {
-  ul.topbar > li.lang a { padding: 0.4rem 0.45rem; }
+ul.topbar > li.lang a:hover,
+ul.topbar > li.lang a:focus-visible {
+  color: var(--text, var(--ice, #fff));
 }
