@@ -1,8 +1,12 @@
 /* ==========================================================================
    LANGUAGE SWITCH SCRIPT (optional)
-   Fills in the links of the EN | FR switch so that each one leads to the
-   same page in the other language, and highlights the language you are in.
-   Without it the switch still works, if you write the links by hand.
+   Turns the single link in <li class="lang"> into a switch to the other
+   language: it reads FR on an English page and EN on a French page, and
+   leads to the same page in the other language.
+   Without it the switch still works, if you write the link by hand.
+
+   HTML (the same on every page):
+     <li class="lang"><a href="#" data-lang-toggle>FR</a></li>
 
    Usage:
      <script src="bladerunner-lang.js" defer></script>
@@ -17,7 +21,8 @@
                 /about.html      <->   /about-fr.html
                 /                <->   /index-fr.html
 
-   Links that should be left exactly as you wrote them: add data-keep.
+   To keep the address you wrote yourself, add data-keep to the link: the
+   label is still updated, the address is left alone.
    The page language is read from <html lang="en"> or <html lang="fr">;
    if that is missing, it is worked out from the address.
    ========================================================================== */
@@ -27,8 +32,10 @@
 
   var SITE_STRUCTURE = "folders";   // "folders" or "suffix"
 
-  var switches = document.querySelectorAll("li.lang");
-  if (!switches.length) return;
+  var NAMES = { en: "English", fr: "Fran\u00e7ais" };
+
+  var links = document.querySelectorAll("li.lang a");
+  if (!links.length) return;
 
   /* ---- Which language is this page in? ---- */
   function currentLanguage() {
@@ -64,20 +71,15 @@
   }
 
   var here = currentLanguage();
+  var other = here === "en" ? "fr" : "en";
 
-  Array.prototype.forEach.call(switches, function (item) {
-    Array.prototype.forEach.call(item.querySelectorAll("a[data-lang]"), function (link) {
-      var lang = link.getAttribute("data-lang");
+  Array.prototype.forEach.call(links, function (link) {
+    link.textContent = other.toUpperCase();
+    link.setAttribute("hreflang", other);
+    link.setAttribute("lang", other);
+    link.setAttribute("aria-label", NAMES[other]);
+    link.removeAttribute("aria-current");
 
-      if (!link.hasAttribute("data-keep")) link.setAttribute("href", addressFor(lang));
-      link.setAttribute("hreflang", lang);
-      link.setAttribute("lang", lang);
-
-      if (lang === here) {
-        link.setAttribute("aria-current", "true");
-      } else {
-        link.removeAttribute("aria-current");
-      }
-    });
+    if (!link.hasAttribute("data-keep")) link.setAttribute("href", addressFor(other));
   });
 })();
