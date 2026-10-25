@@ -1,6 +1,6 @@
 /* ==========================================================================
    LANGUAGE SWITCH ADDITION
-   One link at the right end of the top bar. On the English site it reads
+   One link at the end of the top bar, close to the last menu item. On the English site it reads
    FR and leads to the French site; on the French site it reads EN.
    Load it after bladerunner-topbar.css and bladerunner-mobile.css:
 
@@ -27,9 +27,18 @@
    bladerunner-lang.js fill in the label and the address on every page.
    ========================================================================== */
 
-/* The switch sits at the far right of the bar, on the same gutter as the left edge */
+/* The switch follows the last menu item closely.
+   The bar spaces its items 2rem apart; the negative margin cancels part of that
+   space, leaving --lang-gap between the last item and the toggle. */
+:root { --lang-gap: 0.9rem; }
+
 ul.topbar > li.lang {
-  margin-left: auto;
+  margin-left: calc(var(--lang-gap) - 2rem);
+}
+
+/* On phones the items are spread evenly across the bar: no adjustment needed */
+@media (max-width: 640px) {
+  ul.topbar > li.lang { margin-left: 0; }
 }
 
 ul.topbar > li.lang a {
