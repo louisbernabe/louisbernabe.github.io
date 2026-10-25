@@ -1,0 +1,50 @@
+/* ==========================================================================
+   LANGUAGE SWITCH ADDITION
+   An EN | FR switch at the right end of the top bar.
+   Load it after bladerunner-topbar.css and bladerunner-mobile.css:
+
+     <link rel="stylesheet" href="bladerunner-topbar.css">
+     <link rel="stylesheet" href="bladerunner-lang.css">
+
+   Add one more item to the end of your top bar list:
+
+     <ul class="topbar">
+       <li><a href="/">Home</a></li>
+       ...
+       <li class="lang">
+         <a href="/en/" data-lang="en" hreflang="en" lang="en">EN</a>
+         <a href="/fr/" data-lang="fr" hreflang="fr" lang="fr">FR</a>
+       </li>
+     </ul>
+
+   The current language is highlighted through aria-current="true" on its
+   link. Set it by hand on each page, or let bladerunner-lang.js do it and
+   also fill in the links (see that file).
+   ========================================================================== */
+
+/* The switch sits at the far right of the bar */
+ul.topbar > li.lang {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+ul.topbar > li.lang a {
+  padding: 0.35rem 0.7rem;
+  letter-spacing: 0.14em;
+}
+
+/* A thin divider between the two languages */
+ul.topbar > li.lang a + a {
+  border-left: 1px solid var(--line, var(--steel-line, #34393a));
+}
+
+/* The language you are reading in */
+ul.topbar > li.lang a[aria-current] {
+  color: var(--ochre, var(--amber, #c48a4c));
+}
+
+/* Small screens: a tighter switch, so the whole bar still fits in one row */
+@media (max-width: 640px) {
+  ul.topbar > li.lang a { padding: 0.4rem 0.45rem; }
+}
