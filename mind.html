@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mind map skeleton</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="help">
+  drag background: pan · wheel: zoom · shift+wheel: rotate · double-click background: new node (child of selected) ·
+  double-click node: rename · Delete: remove selected · R: reset view
+</div>
+
+<script>
+"use strict";
+
+/* ---------- 1. DATA MODEL ---------- */
+let nextId = 1;
+const nodes = [];                        // {id, text, x, y, parent, w, h}
+function addNode(text, x, y, parent = null) {
+  const n = { id: nextId++, text, x, y, parent, w: 0, h: 0 };
+  nodes.push(n);
+  return n;
+}
+const root = addNode("Main idea", 0, 0);
+addNode("Branch A", 180, -90, root.id);
+addNode("Branch B", 180, 90, root.id);
+let selected = root;
+
+/* ---------- 2. VIEW + ACTIONS (the API the camera will call later) ---------- */
+// screen = view.pos + scale * Rot(angle) * world
+const view = { x: 0, y: 0, scale: 1, angle: 0 };
+
+function toScreen(wx, wy) {
+  const c = Math.cos(view.angle), s = Math.sin(view.angle);
+  return { x: view.x + view.scale * (c * wx - s * wy),
+           y: view.y + view.scale * (s * wx + c * wy) };
+}
+function toWorld(sx, sy) {
+  const c = Math.cos(view.angle), s = Math.sin(view.angle);
+  const dx = sx - view.x, dy = sy - view.y;
+  return { x: ( c * dx + s * dy) / view.scale,
+           y: (-s * dx + c * dy) / view.scale };
+}
+// Re-anchor so that world point `w` stays under screen point (sx, sy)
+function anchor(w, sx, sy) {
+  const p = toScreen(w.x, w.y);
+  view.x += sx - p.x;
+  view.y += sy - p.y;
+}
+
+const actions = {
+  pan(dx, dy) { view.x += dx; view.y += dy; },
+  zoom(factor, sx, sy) {
+    const w = toWorld(sx, sy);
+    view.scale = Math.min(5, Math.max(0.1, view.scale * factor));
+    anchor(w, sx, sy);
+  },
+  rotate(dAngle, sx, sy) {
+    const w = toWorld(sx, sy);
+    view.angle += dAngle;
+    anchor(w, sx, sy);
+  },
+  reset() { view.x = canvas.clientWidth / 2; view.y = canvas.clientHeight / 2; view.scale = 1; view.angle = 0; }
+};
+
+/* ---------- 3. RENDERING ---------- */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+}
+window.addEventListener("resize", resize);
+
+function draw() {
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+  // apply the view transform: everything below is in world coordinates
+  const c = Math.cos(view.angle) * view.scale, s = Math.sin(view.angle) * view.scale;
+  ctx.transform(c, s, -s, c, view.x, view.y);
+
+  ctx.font = "16px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // links
+  ctx.strokeStyle = "#999";
+  ctx.lineWidth = 2;
+  for (const n of nodes) {
+    const p = nodes.find(m => m.id === n.parent);
+    if (!p) continue;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(n.x, n.y); ctx.stroke();
+  }
+  // nodes
+  for (const n of nodes) {
+    n.w = ctx.measureText(n.text).width + 24;
+    n.h = 34;
+    ctx.fillStyle = n === selected ? "#dbeafe" : "#fff";
+    ctx.strokeStyle = n === selected ? "#2563eb" : "#555";
+    ctx.beginPath();
+    ctx.roundRect(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h, 8);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#111";
+    ctx.fillText(n.text, n.x, n.y);
+  }
+  requestAnimationFrame(draw);
+}
+
+/* ---------- 4. MOUSE INPUT (calls the same actions) ---------- */
+function nodeAt(wx, wy) {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    if (Math.abs(wx - n.x) <= n.w / 2 && Math.abs(wy - n.y) <= n.h / 2) return n;
+  }
+  return null;
+}
+function mousePos(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+let drag = null; // {type: "pan"|"node", node?, last:{x,y}}
+
+canvas.addEventListener("mousedown", e => {
+  const m = mousePos(e), w = toWorld(m.x, m.y), hit = nodeAt(w.x, w.y);
+  if (hit) { selected = hit; drag = { type: "node", node: hit }; }
+  else     { selected = null;  drag = { type: "pan" }; }
+  drag.last = m;
+});
+window.addEventListener("mousemove", e => {
+  if (!drag) return;
+  const m = mousePos(e);
+  if (drag.type === "pan") {
+    actions.pan(m.x - drag.last.x, m.y - drag.last.y);
+  } else {
+    const a = toWorld(drag.last.x, drag.last.y), b = toWorld(m.x, m.y);
+    drag.node.x += b.x - a.x;
+    drag.node.y += b.y - a.y;
+  }
+  drag.last = m;
+});
+window.addEventListener("mouseup", () => { drag = null; });
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const m = mousePos(e);
+  if (e.shiftKey) actions.rotate(-e.deltaY * 0.002, m.x, m.y);
+  else            actions.zoom(Math.exp(-e.deltaY * 0.001), m.x, m.y);
+}, { passive: false });
+
+canvas.addEventListener("dblclick", e => {
+  const m = mousePos(e), w = toWorld(m.x, m.y), hit = nodeAt(w.x, w.y);
+  if (hit) {
+    const t = prompt("Node text:", hit.text);
+    if (t !== null && t.trim()) hit.text = t.trim();
+  } else {
+    selected = addNode("New idea", w.x, w.y, selected ? selected.id : root.id);
+  }
+});
+
+window.addEventListener("keydown", e => {
+  if (e.key === "r" || e.key === "R") actions.reset();
+  if (e.key === "Delete" && selected && selected !== root) {
+    const doomed = new Set([selected.id]);
+    let grew = true;
+    while (grew) {                       // collect descendants
+      grew = false;
+      for (const n of nodes)
+        if (n.parent && doomed.has(n.parent) && !doomed.has(n.id)) { doomed.add(n.id); grew = true; }
+    }
+    for (let i = nodes.length - 1; i >= 0; i--) if (doomed.has(nodes[i].id)) nodes.splice(i, 1);
+    selected = null;
+  }
+});
+
+/* ---------- 5. FUTURE: hand tracking plugs in here ----------
+   A tracker would just call the same functions, e.g. every frame:
+     actions.zoom(newPinchDistance / oldPinchDistance, midX, midY);
+     actions.rotate(newHandAngle - oldHandAngle, midX, midY);
+     actions.pan(dx, dy);
+------------------------------------------------------------- */
+
+resize();
+actions.reset();
+draw();
+</script>
+</body>
+</html>
