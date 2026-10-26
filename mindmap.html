@@ -21,7 +21,7 @@
   <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
   <button id="camBtn">Enable camera</button>
   <label><input type="checkbox" id="gestOn" checked> gestures drive the zoom</label>
-  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · relaxed hand = nothing</div>
+  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · move your hand outside the dashed box = move the map (left, right, up, down) · hand inside the box, relaxed = nothing</div>
   <div id="camStatus" style="white-space:pre-line">camera off</div>
 </div>
 <div id="help">view only · camera pinch: zoom · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
@@ -170,6 +170,15 @@ const G = {
   zoomGain: 3.5,         // ln(zoom) per second per unit of ratio beyond the threshold
   smooth: 0.35,          // exponential smoothing factor (higher = more responsive, more jitter)
   engageFrames: 6,       // hand must be seen this many frames in a row before it controls anything
+
+  // Moving the map with the hand position. Also rate-based: keep your hand inside the dashed box
+  // (the centre of the camera view) for no movement; the further outside it, the faster the map moves.
+  pan: true,             // set to false to switch hand-position movement off
+  panDir: 1,             //  1: the view moves toward your hand (hand right -> you see more of the right)
+                         // -1: the opposite (the map follows your hand like a grabbed sheet)
+  panDead: 0.18,         // half-size of the neutral box, as a fraction of the camera frame (0.18 = central 36%)
+  panGain: 700,          // screen pixels per second per unit of frame fraction beyond the box (max about 220 px/s)
+  posSmooth: 0.25,       // smoothing of the hand position (lower = steadier, slower)
 };
 
 const btn = document.getElementById("camBtn");
@@ -208,7 +217,7 @@ btn.addEventListener("click", async () => {
     const mapCanvas = document.getElementById("c");
     const gestOn = document.getElementById("gestOn");
     let lastTime = -1, lastT = performance.now();
-    let handFrames = 0, smPinch = 0;
+    let handFrames = 0, smPinch = 0, smX = 0.5, smY = 0.5;
 
     function loop() {
       if (video.currentTime !== lastTime) {          // only process genuinely new frames
@@ -218,6 +227,14 @@ btn.addEventListener("click", async () => {
         lastT = now;
         const result = landmarker.detectForVideo(video, now);
         octx.clearRect(0, 0, W, H);
+        if (G.pan) {                                 // dashed neutral box: hand inside = no movement
+          octx.save();
+          octx.strokeStyle = "#fff";
+          octx.lineWidth = 2;
+          octx.setLineDash([8, 8]);
+          octx.strokeRect((0.5 - G.panDead) * W, (0.5 - G.panDead) * H, 2 * G.panDead * W, 2 * G.panDead * H);
+          octx.restore();
+        }
 
         if (!result.landmarks.length) {
           handFrames = 0;
@@ -235,6 +252,20 @@ btn.addEventListener("click", async () => {
           handFrames++;
           smPinch = handFrames === 1 ? pinch : smPinch + G.smooth * (pinch - smPinch);
 
+          // Palm centre = average of the wrist and the four knuckles (0, 5, 9, 13, 17). It barely moves when
+          // the fingers open or close, so zooming doesn't disturb it. x is mirrored: right = your right.
+          const palmX = 1 - (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
+          const palmY = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
+          if (handFrames === 1) { smX = palmX; smY = palmY; }
+          else { smX += G.posSmooth * (palmX - smX); smY += G.posSmooth * (palmY - smY); }
+          if (G.pan) {                               // palm marker (the overlay is mirrored by CSS, so use raw x)
+            octx.beginPath();
+            octx.arc((1 - smX) * W, smY * H, 9, 0, 2 * Math.PI);
+            octx.strokeStyle = "#facc15";
+            octx.lineWidth = 3;
+            octx.stroke();
+          }
+
           let zExcess = 0;                           // distance past the thresholds (0 in the neutral zone)
           if (smPinch < G.pinchLow) zExcess = smPinch - G.pinchLow;        // negative: zoom out
           else if (smPinch > G.pinchHigh) zExcess = smPinch - G.pinchHigh; // positive: zoom in
@@ -244,7 +275,24 @@ btn.addEventListener("click", async () => {
             // zoom around the screen centre
             window.actions.zoom(Math.exp(G.zoomGain * zExcess * dt), mapCanvas.clientWidth / 2, mapCanvas.clientHeight / 2);
           }
-          setStatus(`pinch ${smPinch.toFixed(2)}${zExcess > 0 ? "  ▲ zoom in" : zExcess < 0 ? "  ▼ zoom out" : ""}${live ? "" : "  (paused)"}`);
+
+          // Pan: distance of the palm beyond the neutral box (0 inside it), per axis
+          const dxN = smX - 0.5, dyN = smY - 0.5;
+          const ex = Math.abs(dxN) > G.panDead ? Math.sign(dxN) * (Math.abs(dxN) - G.panDead) : 0;
+          const ey = Math.abs(dyN) > G.panDead ? Math.sign(dyN) * (Math.abs(dyN) - G.panDead) : 0;
+          const vx = G.panDir * ex, vy = G.panDir * ey;      // direction the VIEW moves
+          if (live && G.pan && (ex || ey)) {
+            // the view moves toward the hand, so the content slides the opposite way
+            window.actions.pan(-G.panGain * vx * dt, -G.panGain * vy * dt);
+          }
+
+          const sgn = v => (v >= 0 ? "+" : "") + v.toFixed(2);
+          const arrows = (vx > 0 ? " →" : vx < 0 ? " ←" : "") + (vy > 0 ? " ↓" : vy < 0 ? " ↑" : "");
+          setStatus(
+            `pinch ${smPinch.toFixed(2)}${zExcess > 0 ? "  ▲ zoom in" : zExcess < 0 ? "  ▼ zoom out" : ""}\n` +
+            (G.pan ? `hand ${sgn(dxN)}, ${sgn(dyN)}${arrows}` : "movement off") +
+            (live ? "" : "  (paused)")
+          );
         }
       }
       requestAnimationFrame(loop);
