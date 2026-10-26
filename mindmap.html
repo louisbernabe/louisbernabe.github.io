@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mind map (view only)</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
+  canvas#c { display: block; width: 100%; height: 100%; cursor: grab; }
+  #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
+  #cam { position: fixed; right: 10px; bottom: 10px; width: 240px; font-size: 12px; color: #444; background: #fffc; padding: 8px; border-radius: 8px; }
+  #camBox { display: none; position: relative; width: 100%; aspect-ratio: 4 / 3; margin-bottom: 6px; background: #000; border-radius: 6px; overflow: hidden; }
+  #camBox video, #camBox canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); } /* mirror like a selfie view */
+  #camBtn { width: 100%; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="cam">
+  <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
+  <button id="camBtn">Enable camera</button>
+  <label><input type="checkbox" id="gestOn" checked> gestures drive the zoom</label>
+  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · relaxed hand = nothing</div>
+  <div id="camStatus" style="white-space:pre-line">camera off</div>
+</div>
+<div id="help">view only · camera pinch: zoom · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
+
+<script>
+"use strict";
+
+/* ---------- 1. DATA (fixed, taken from mindmap (1).json; nothing here can be edited in the page) ---------- */
+// [id, text, x, y, parent id (null = main node)]
+const DATA = [
+  [1,  "Physics",                    -480,    0,      null],
+  [2,  "Math",                          0,    0,      null],
+  [3,  "Business",                    480,    0,      null],
+  [4,  "Thermal Physics",            -276, -149,      1],
+  [5,  "Classical Mechanics",        -680, -149,      1],
+  [6,  "Experimental Physics",       -665,  150,      1],
+  [7,  "Electrodynamics",            -480, -190,      1],
+  [8,  "Quantum Mechanics",        -283.46, 125,      1],
+  [9,  "Relativity",                 -485, 211.54,    1],
+  [10, "Calculus & Analysis",         190,    0,      2],
+  [11, "Algebra (Linear, Abstract)", -190,    0,      2],
+  [12, "Statistics and Probability",    0,  190,      2],
+  [13, "Differential Equations",        0, -190,      2],
+  [14, "Law",                         667, -153,      3],
+  [15, "Accounting",                  288, -157,      3],
+  [16, "Economics",                   480,  190,      3],
+  [17, "Finance",                     480, -190,      3],
+  [18, "Marketing",                662.54,  131,      3],
+  [19, "Operations",                  290, 114.54,    3],
+];
+const nodes = DATA.map(([id, text, x, y, parent]) => ({ id, text, x, y, parent, w: 0, h: 0 }));
+const byId = new Map(nodes.map(n => [n.id, n]));
+
+/* ---------- 2. VIEW + ACTIONS (the only things that can change: zoom and pan) ---------- */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const view = { x: 0, y: 0, scale: 1 };           // screen = view.pos + scale * world
+const MIN_SCALE = 0.1, MAX_SCALE = 5;
+
+const fontFor = n => n.parent === null ? "bold 18px system-ui, sans-serif" : "16px system-ui, sans-serif";
+function measure() {
+  for (const n of nodes) {
+    ctx.font = fontFor(n);
+    n.w = ctx.measureText(n.text).width + 24;
+    n.h = n.parent === null ? 40 : 34;
+  }
+}
+
+const actions = {
+  pan(dx, dy) { view.x += dx; view.y += dy; },
+  zoom(factor, sx, sy) {                          // keeps the point under (sx, sy) fixed
+    const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, view.scale * factor));
+    const wx = (sx - view.x) / view.scale, wy = (sy - view.y) / view.scale;
+    view.scale = s;
+    view.x = sx - wx * s;
+    view.y = sy - wy * s;
+  },
+  fit() {                                         // fit the whole map on screen
+    measure();
+    const cw = canvas.clientWidth, ch = canvas.clientHeight, pad = 60;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of nodes) {
+      x0 = Math.min(x0, n.x - n.w / 2); x1 = Math.max(x1, n.x + n.w / 2);
+      y0 = Math.min(y0, n.y - n.h / 2); y1 = Math.max(y1, n.y + n.h / 2);
+    }
+    const s = Math.min((cw - 2 * pad) / (x1 - x0), (ch - 2 * pad) / (y1 - y0), 1.5);
+    view.scale = s;
+    view.x = cw / 2 - s * (x0 + x1) / 2;
+    view.y = ch / 2 - s * (y0 + y1) / 2;
+  },
+};
+window.actions = actions;                         // used by the camera script below
+
+/* ---------- 3. RENDERING ---------- */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+}
+window.addEventListener("resize", resize);
+
+function draw() {
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  ctx.transform(view.scale, 0, 0, view.scale, view.x, view.y);   // everything below is in world coordinates
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  ctx.strokeStyle = "#999";
+  ctx.lineWidth = 2;
+  for (const n of nodes) {
+    const p = byId.get(n.parent);
+    if (!p) continue;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(n.x, n.y); ctx.stroke();
+  }
+  for (const n of nodes) {
+    const main = n.parent === null;
+    ctx.fillStyle = main ? "#dbeafe" : "#fff";
+    ctx.strokeStyle = main ? "#2563eb" : "#555";
+    ctx.beginPath();
+    ctx.roundRect(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h, 8);
+    ctx.fill(); ctx.stroke();
+    ctx.font = fontFor(n);
+    ctx.fillStyle = "#111";
+    ctx.fillText(n.text, n.x, n.y);
+  }
+  requestAnimationFrame(draw);
+}
+
+/* ---------- 4. MOUSE FALLBACK (zoom and pan only; there is no way to touch the nodes) ---------- */
+let panning = null;
+const mousePos = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+canvas.addEventListener("mousedown", e => { panning = mousePos(e); });
+window.addEventListener("mousemove", e => {
+  if (!panning) return;
+  const m = mousePos(e);
+  actions.pan(m.x - panning.x, m.y - panning.y);
+  panning = m;
+});
+window.addEventListener("mouseup", () => { panning = null; });
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const m = mousePos(e);
+  actions.zoom(Math.exp(-e.deltaY * 0.001), m.x, m.y);
+}, { passive: false });
+window.addEventListener("keydown", e => { if (e.key === "r" || e.key === "R") actions.fit(); });
+
+resize();
+actions.fit();
+draw();
+</script>
+
+<script type="module">
+/* ---------- 5. HAND LANDMARKER: camera pinch controls the zoom ---------- */
+const MP_VERSION = "latest";   // once it works, pin an exact version (e.g. "0.10.21") for reproducibility
+const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+// Rate-based ("joystick") control: the relaxed pose does nothing; the further you go past a
+// threshold, the faster the map zooms. Same values as the editor; tune them with the on-screen readout.
+const G = {
+  pinchLow: 0.30,        // smoothed pinch ratio below this  -> zoom out
+  pinchHigh: 0.90,       // above this                        -> zoom in
+  zoomGain: 3.5,         // ln(zoom) per second per unit of ratio beyond the threshold
+  smooth: 0.35,          // exponential smoothing factor (higher = more responsive, more jitter)
+  engageFrames: 6,       // hand must be seen this many frames in a row before it controls anything
+};
+
+const btn = document.getElementById("camBtn");
+const box = document.getElementById("camBox");
+const video = document.getElementById("camVideo");
+const overlay = document.getElementById("camOverlay");
+const octx = overlay.getContext("2d");
+const setStatus = t => { document.getElementById("camStatus").textContent = t; };
+
+btn.addEventListener("click", async () => {
+  btn.disabled = true;
+  try {
+    setStatus("loading model…");
+    const { FilesetResolver, HandLandmarker, DrawingUtils } = await import(`${MP_BASE}/vision_bundle.mjs`);
+    const fileset = await FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const make = delegate => HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      runningMode: "VIDEO",
+      numHands: 2,
+    });
+    let landmarker;
+    try { landmarker = await make("GPU"); } catch { landmarker = await make("CPU"); }
+
+    setStatus("starting camera…");
+    video.srcObject = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: "user" }, audio: false
+    });
+    await video.play();
+    overlay.width = video.videoWidth;
+    overlay.height = video.videoHeight;
+    box.style.display = "block";
+    btn.style.display = "none";
+
+    const utils = new DrawingUtils(octx);
+    const W = video.videoWidth, H = video.videoHeight;
+    const mapCanvas = document.getElementById("c");
+    const gestOn = document.getElementById("gestOn");
+    let lastTime = -1, lastT = performance.now();
+    let handFrames = 0, smPinch = 0;
+
+    function loop() {
+      if (video.currentTime !== lastTime) {          // only process genuinely new frames
+        lastTime = video.currentTime;
+        const now = performance.now();
+        const dt = Math.min((now - lastT) / 1000, 0.1);
+        lastT = now;
+        const result = landmarker.detectForVideo(video, now);
+        octx.clearRect(0, 0, W, H);
+
+        if (!result.landmarks.length) {
+          handFrames = 0;
+          setStatus("no hand detected");
+        } else {
+          result.landmarks.forEach((lm, i) => {      // draw all hands; only the first one controls the zoom
+            utils.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: i === 0 ? "#2563eb" : "#9ca3af", lineWidth: 3 });
+            utils.drawLandmarks(lm, { color: "#fff", fillColor: i === 0 ? "#ef4444" : "#9ca3af", radius: 3 });
+          });
+          const lm = result.landmarks[0];
+          const d = (a, b) => Math.hypot((lm[a].x - lm[b].x) * W, (lm[a].y - lm[b].y) * H);
+
+          // Pinch: thumb tip (4) to index tip (8), divided by hand size (wrist 0 to middle knuckle 9)
+          const pinch = d(4, 8) / d(0, 9);
+          handFrames++;
+          smPinch = handFrames === 1 ? pinch : smPinch + G.smooth * (pinch - smPinch);
+
+          let zExcess = 0;                           // distance past the thresholds (0 in the neutral zone)
+          if (smPinch < G.pinchLow) zExcess = smPinch - G.pinchLow;        // negative: zoom out
+          else if (smPinch > G.pinchHigh) zExcess = smPinch - G.pinchHigh; // positive: zoom in
+
+          const live = gestOn.checked && handFrames >= G.engageFrames;
+          if (live && zExcess) {
+            // zoom around the screen centre
+            window.actions.zoom(Math.exp(G.zoomGain * zExcess * dt), mapCanvas.clientWidth / 2, mapCanvas.clientHeight / 2);
+          }
+          setStatus(`pinch ${smPinch.toFixed(2)}${zExcess > 0 ? "  ▲ zoom in" : zExcess < 0 ? "  ▼ zoom out" : ""}${live ? "" : "  (paused)"}`);
+        }
+      }
+      requestAnimationFrame(loop);
+    }
+    loop();
+  } catch (err) {
+    console.error(err);
+    setStatus("error: " + (err.message || err));
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
