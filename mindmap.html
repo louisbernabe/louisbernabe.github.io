@@ -72,28 +72,86 @@ const byId = new Map(nodes.map(n => [n.id, n]));
 const DETAILS = {
   // Physics
   "Thermal Physics": [            // EXAMPLE: replace with your own items
-    "Laws of thermodynamics",
-    "Entropy and free energy",
-    "Statistical ensembles",
-    "Heat engines",
+    "Thermodynamics I",
+    "Thermodynamics II",
+    "Thermal Physics",
   ],
-  "Classical Mechanics": [],
-  "Experimental Physics": [],
-  "Electrodynamics": [],
-  "Quantum Mechanics": [],
+  "Classical Mechanics": [
+    "General Physics",
+    "Newtonian Dynamics I", 
+    "Newtonian Dynamics II",
+    "Oscillator and Vibration Physics",
+    "Wave Mechanics",
+    "Advanced Classical Mechanics",
+  ],
+  "Experimental Physics": [
+    "Laboratory Physics: Mechanics and Electronics",
+    "Experimental Physics I, II",
+    "Python Programming for Sciences",
+    "Computational Physics",
+    "Practical Physics II",
+  ],
+  "Electrodynamics": [
+    "Electricity and Magnetism",
+    "Electrodynamics",
+    "Electronics",
+  ],
+  "Quantum Mechanics": [
+    "Introduction to Quantum Mechanics (UofT)",
+    "Introduction to Quantum Mechanics (UofM)",
+  ],
   "Relativity": [],
   // Math
-  "Calculus & Analysis": [],
-  "Algebra (Linear, Abstract)": [],
-  "Statistics and Probability": [],
-  "Differential Equations": [],
+  "Calculus & Analysis": [
+    "Calculus I", 
+    "Calculus II", 
+    "Calculus III and Analysis",
+    "Mathematics (ESADE)",
+    "Multivariable Calculus",
+  ],
+  "Algebra (Linear, Abstract)": [
+    "Linear Algebra I",
+    "Linear Algebra II",
+  ],
+  "Statistics and Probability": [
+    "Mathematical Problems",
+    "Statistics I",
+    "Statistics II",
+  ],
+  "Differential Equations": [
+    "Differential Equations I (ODE)",
+    "Differential Equations II (PDE)",
+  ],
   // Business
-  "Law": [],
-  "Accounting": [],
-  "Economics": [],
-  "Finance": [],
-  "Marketing": [],
-  "Operations": [],
+  "Law": [
+    "Corporate Law",
+    "Fiscal Law",
+  ],
+  "Accounting": [
+    "Accounting I",
+    "Accounting II",
+    "Accounting III",
+  ],
+  "Economics": [
+    "Microeconomics",
+    "Macroeconomics",
+    "Business Policy",
+  ],
+  "Finance": [
+    "Financial Markets",
+    "Corporate Finance I",
+    "Corporate Finance II",
+  ],
+  "Marketing": [
+    "Marketing Management I",
+    "Marketing Management II",
+    "Marketing Management III",
+  ],
+  "Operations": [
+    "Operations I",
+    "Operations II",
+    "Operations III",
+  ],
 };
 
 /* ---------- 2. VIEW + ACTIONS (the only things that can change: zoom and pan) ---------- */
