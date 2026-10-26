@@ -20,7 +20,7 @@
   <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
   <button id="camBtn">Enable camera</button>
   <label><input type="checkbox" id="gestOn" checked> gestures drive the map</label>
-  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · tilt hand at wrist = rotate · relaxed upright hand = nothing</div>
+  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · relaxed hand = nothing</div>
   <div id="camStatus" style="white-space:pre-line">camera off</div>
 </div>
 <div id="help">
@@ -217,6 +217,7 @@ const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmark
 // Gesture tuning. Control is rate-based ("joystick"): a neutral pose does nothing, and the further
 // you go past a threshold, the faster the map zooms/rotates. Tune these using the on-screen readout.
 const G = {
+  rotation: false,                   // set to true to re-enable wrist-tilt rotation
   pinchLow: 0.30,                    // smoothed pinch ratio below this  -> zoom out
   pinchHigh: 0.90,                   // above this                        -> zoom in
   zoomGain: 3.5,                     // ln(zoom) per second per unit of ratio beyond the threshold
@@ -300,7 +301,7 @@ btn.addEventListener("click", async () => {
           let zExcess = 0, rExcess = 0;
           if (smPinch < G.pinchLow) zExcess = smPinch - G.pinchLow;        // negative: zoom out
           else if (smPinch > G.pinchHigh) zExcess = smPinch - G.pinchHigh; // positive: zoom in
-          if (Math.abs(smTilt) > G.tiltDead) rExcess = Math.sign(smTilt) * (Math.abs(smTilt) - G.tiltDead);
+          if (G.rotation && Math.abs(smTilt) > G.tiltDead) rExcess = Math.sign(smTilt) * (Math.abs(smTilt) - G.tiltDead);
 
           const live = gestOn.checked && handFrames >= G.engageFrames;
           if (live) {
@@ -312,7 +313,8 @@ btn.addEventListener("click", async () => {
           const deg = (smTilt * 180 / Math.PI).toFixed(0);
           setStatus(
             `pinch ${smPinch.toFixed(2)}${zExcess > 0 ? "  ▲ zoom in" : zExcess < 0 ? "  ▼ zoom out" : ""}\n` +
-            `tilt ${deg}°${rExcess > 0 ? "  ↻ rotating" : rExcess < 0 ? "  ↺ rotating" : ""}${live ? "" : "  (paused)"}`
+            (G.rotation ? `tilt ${deg}°${rExcess > 0 ? "  ↻ rotating" : rExcess < 0 ? "  ↺ rotating" : ""}` : "rotation off") +
+            (live ? "" : "  (paused)")
           );
         }
       }
