@@ -19,7 +19,9 @@
 <div id="cam">
   <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
   <button id="camBtn">Enable camera</button>
-  <div id="camStatus">camera off</div>
+  <label><input type="checkbox" id="gestOn" checked> gestures drive the map</label>
+  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · tilt hand at wrist = rotate · relaxed upright hand = nothing</div>
+  <div id="camStatus" style="white-space:pre-line">camera off</div>
 </div>
 <div id="help">
   drag background: pan · wheel: zoom · shift+wheel: rotate · double-click background: new node (child of selected) ·
@@ -78,6 +80,7 @@ const actions = {
   },
   reset() { view.x = canvas.clientWidth / 2; view.y = canvas.clientHeight / 2; view.scale = 1; view.angle = 0; }
 };
+window.actions = actions;   // lets the hand-tracking module script call the same actions as the mouse
 
 /* ---------- 3. RENDERING ---------- */
 const canvas = document.getElementById("c");
@@ -211,6 +214,19 @@ const MP_VERSION = "latest";   // once it works, pin an exact version (e.g. "0.1
 const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
+// Gesture tuning. Control is rate-based ("joystick"): a neutral pose does nothing, and the further
+// you go past a threshold, the faster the map zooms/rotates. Tune these using the on-screen readout.
+const G = {
+  pinchLow: 0.30,                    // smoothed pinch ratio below this  -> zoom out
+  pinchHigh: 0.90,                   // above this                        -> zoom in
+  zoomGain: 3.5,                     // ln(zoom) per second per unit of ratio beyond the threshold
+  tiltDead: 15 * Math.PI / 180,      // wrist tilt dead zone (each side of upright)
+  tiltMax: 60 * Math.PI / 180,       // tilt beyond this counts as this
+  rotGain: 2.0,                      // rad/s of map rotation per rad of tilt beyond the dead zone
+  smooth: 0.35,                      // exponential smoothing factor (0 to 1; higher = more responsive, more jitter)
+  engageFrames: 6,                   // hand must be seen this many frames in a row before it controls anything
+};
+
 const btn = document.getElementById("camBtn");
 const box = document.getElementById("camBox");
 const video = document.getElementById("camVideo");
@@ -244,22 +260,61 @@ btn.addEventListener("click", async () => {
 
     const utils = new DrawingUtils(octx);
     const W = video.videoWidth, H = video.videoHeight;
-    let lastTime = -1;
+    const mapCanvas = document.getElementById("c");
+    const gestOn = document.getElementById("gestOn");
+    let lastTime = -1, lastT = performance.now();
+    let handFrames = 0, smPinch = 0, smTilt = 0;
 
     function loop() {
       if (video.currentTime !== lastTime) {          // only process genuinely new frames
         lastTime = video.currentTime;
-        const result = landmarker.detectForVideo(video, performance.now());
+        const now = performance.now();
+        const dt = Math.min((now - lastT) / 1000, 0.1);
+        lastT = now;
+        const result = landmarker.detectForVideo(video, now);
         octx.clearRect(0, 0, W, H);
-        const lines = [];
-        result.landmarks.forEach((lm, i) => {
-          utils.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: "#2563eb", lineWidth: 3 });
-          utils.drawLandmarks(lm, { color: "#fff", fillColor: "#ef4444", radius: 3 });
-          // pinch = thumb tip (4) to index tip (8), normalised by hand size (wrist 0 to middle knuckle 9)
+
+        if (!result.landmarks.length) {
+          handFrames = 0;
+          setStatus("no hand detected");
+        } else {
+          result.landmarks.forEach((lm, i) => {      // draw all hands; only the first one controls the map
+            utils.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: i === 0 ? "#2563eb" : "#9ca3af", lineWidth: 3 });
+            utils.drawLandmarks(lm, { color: "#fff", fillColor: i === 0 ? "#ef4444" : "#9ca3af", radius: 3 });
+          });
+          const lm = result.landmarks[0];
           const d = (a, b) => Math.hypot((lm[a].x - lm[b].x) * W, (lm[a].y - lm[b].y) * H);
-          lines.push(`hand ${i + 1}: pinch ${(d(4, 8) / d(0, 9)).toFixed(2)}`);
-        });
-        setStatus(lines.length ? lines.join(" · ") : "no hand detected");
+
+          // Pinch: thumb tip (4) to index tip (8), divided by hand size (wrist 0 to middle knuckle 9)
+          const pinch = d(4, 8) / d(0, 9);
+          // Tilt: angle of the wrist-to-middle-knuckle axis from vertical. The sign is flipped because the
+          // camera image is not mirrored: tilting your hand clockwise (as you see it) gives a positive tilt.
+          const tiltRaw = Math.atan2(-(lm[9].x - lm[0].x) * W, -(lm[9].y - lm[0].y) * H);
+          const tilt = Math.abs(tiltRaw) > 1.75 ? 0 : Math.max(-G.tiltMax, Math.min(G.tiltMax, tiltRaw)); // ignore upside-down poses
+
+          handFrames++;
+          if (handFrames === 1) { smPinch = pinch; smTilt = tilt; }
+          else { smPinch += G.smooth * (pinch - smPinch); smTilt += G.smooth * (tilt - smTilt); }
+
+          // Distance past the thresholds (0 inside the neutral zone)
+          let zExcess = 0, rExcess = 0;
+          if (smPinch < G.pinchLow) zExcess = smPinch - G.pinchLow;        // negative: zoom out
+          else if (smPinch > G.pinchHigh) zExcess = smPinch - G.pinchHigh; // positive: zoom in
+          if (Math.abs(smTilt) > G.tiltDead) rExcess = Math.sign(smTilt) * (Math.abs(smTilt) - G.tiltDead);
+
+          const live = gestOn.checked && handFrames >= G.engageFrames;
+          if (live) {
+            const cx = mapCanvas.clientWidth / 2, cy = mapCanvas.clientHeight / 2;  // act around the screen centre
+            if (zExcess) window.actions.zoom(Math.exp(G.zoomGain * zExcess * dt), cx, cy);
+            if (rExcess) window.actions.rotate(G.rotGain * rExcess * dt, cx, cy);
+          }
+
+          const deg = (smTilt * 180 / Math.PI).toFixed(0);
+          setStatus(
+            `pinch ${smPinch.toFixed(2)}${zExcess > 0 ? "  ▲ zoom in" : zExcess < 0 ? "  ▼ zoom out" : ""}\n` +
+            `tilt ${deg}°${rExcess > 0 ? "  ↻ rotating" : rExcess < 0 ? "  ↺ rotating" : ""}${live ? "" : "  (paused)"}`
+          );
+        }
       }
       requestAnimationFrame(loop);
     }
