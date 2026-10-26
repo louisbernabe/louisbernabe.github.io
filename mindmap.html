@@ -1,23 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="stylesheet" type="text/css" href="/css/bladerunner.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-lists.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-mobile.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-hover.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-light.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-topbar.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-contact-align.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-paragraphs.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-flag-toggle.css">
-		
-		<meta name="viewport" content="width=device-width, initial-scale=1">
-
-		<link rel="icon" href="/images/mindmap (1).png" type="image/svg+xml">
-		<link rel="icon" href="/images/mindmap (1).png" sizes="32x32">
-		<link rel="apple-touch-icon" href="/images/IMG_3022 (2) (1).png">
-
-		<script src="bladerunner-links-fx.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mind map (view only)</title>
@@ -29,6 +12,10 @@
   #camBox { display: none; position: relative; width: 100%; aspect-ratio: 4 / 3; margin-bottom: 6px; background: #000; border-radius: 6px; overflow: hidden; }
   #camBox video, #camBox canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); } /* mirror like a selfie view */
   #camBtn { width: 100%; margin-bottom: 4px; }
+  #tip { position: fixed; display: none; z-index: 5; max-width: 280px; padding: 8px 14px 8px 10px; font-size: 13px; color: #111;
+         background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 14px #0002; pointer-events: none; }
+  #tip ul { margin: 0; padding-left: 18px; }
+  #tip li { margin: 2px 0; }
   @media (max-width: 700px), (pointer: coarse) {
     #cam { width: 150px; padding: 6px; font-size: 11px; }
     #camLegend { display: none; }
@@ -37,21 +24,8 @@
 </style>
 </head>
 <body>
-   <nav>
-    		<ul class="topbar">
-        		<li><a href="/">Home</a></li>
-	        	<li><a href="/about">About</a></li>
-        		<li><a href="/blog">Blog</a></li>
-				<li><a href="/projects">Projects</a></li>
-				<li><a href="/courses">Education</a></li>
-				<li><a href="/mindmap">Mind Map</a></li>
-				<li><a href="/fr/" hreflang="fr" lang="fr" aria-label="Français" title="Français">FR</a></li>
-    		</ul>
-		</nav>
-	<div class="container">
-	<h2>Here is a visual summary </br> of what I've learned so far:</h2>
-	</div>
 <canvas id="c"></canvas>
+<div id="tip"></div>
 
 <div id="cam">
   <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
@@ -90,6 +64,37 @@ const DATA = [
 ];
 const nodes = DATA.map(([id, text, x, y, parent]) => ({ id, text, x, y, parent, w: 0, h: 0 }));
 const byId = new Map(nodes.map(n => [n.id, n]));
+
+/* ---------- 1b. HOVER LISTS: edit these ----------
+   For each sub node, list the items shown in the dropdown when the mouse hovers it.
+   The key must match the node's text exactly. Items are plain text (no HTML).
+   An empty list [] means no dropdown for that node. */
+const DETAILS = {
+  // Physics
+  "Thermal Physics": [            // EXAMPLE: replace with your own items
+    "Laws of thermodynamics",
+    "Entropy and free energy",
+    "Statistical ensembles",
+    "Heat engines",
+  ],
+  "Classical Mechanics": [],
+  "Experimental Physics": [],
+  "Electrodynamics": [],
+  "Quantum Mechanics": [],
+  "Relativity": [],
+  // Math
+  "Calculus & Analysis": [],
+  "Algebra (Linear, Abstract)": [],
+  "Statistics and Probability": [],
+  "Differential Equations": [],
+  // Business
+  "Law": [],
+  "Accounting": [],
+  "Economics": [],
+  "Finance": [],
+  "Marketing": [],
+  "Operations": [],
+};
 
 /* ---------- 2. VIEW + ACTIONS (the only things that can change: zoom and pan) ---------- */
 const canvas = document.getElementById("c");
@@ -149,6 +154,7 @@ function resize() {
 window.addEventListener("resize", resize);
 
 function draw() {
+  updateHover();
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
@@ -166,8 +172,8 @@ function draw() {
   }
   for (const n of nodes) {
     const main = n.parent === null;
-    ctx.fillStyle = main ? "#dbeafe" : "#fff";
-    ctx.strokeStyle = main ? "#2563eb" : "#555";
+    ctx.fillStyle = main ? "#dbeafe" : n === hovered ? "#eff6ff" : "#fff";
+    ctx.strokeStyle = main || n === hovered ? "#2563eb" : "#555";
     ctx.beginPath();
     ctx.roundRect(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h, 8);
     ctx.fill(); ctx.stroke();
@@ -195,6 +201,49 @@ canvas.addEventListener("wheel", e => {
   actions.zoom(Math.exp(-e.deltaY * 0.001), m.x, m.y);
 }, { passive: false });
 window.addEventListener("keydown", e => { if (e.key === "r" || e.key === "R") actions.fit(); });
+
+/* ---------- 4b. HOVER DROPDOWN (sub nodes only) ---------- */
+const tip = document.getElementById("tip");
+const mouse = { x: 0, y: 0, inside: false };
+let hovered = null;
+canvas.addEventListener("mousemove", e => { const m = mousePos(e); mouse.x = m.x; mouse.y = m.y; mouse.inside = true; });
+canvas.addEventListener("mouseleave", () => { mouse.inside = false; });
+
+// Runs every frame, so the hover stays correct even when the map moves under a still mouse (camera zoom or pan).
+function updateHover() {
+  let hit = null;
+  if (mouse.inside && !panning) {
+    const wx = (mouse.x - view.x) / view.scale, wy = (mouse.y - view.y) / view.scale;
+    for (let i = nodes.length - 1; i >= 0 && !hit; i--) {
+      const n = nodes[i];
+      if (n.parent !== null && Math.abs(wx - n.x) <= n.w / 2 && Math.abs(wy - n.y) <= n.h / 2) hit = n;
+    }
+  }
+  hovered = hit;
+
+  const items = hit ? (DETAILS[hit.text] || []) : [];
+  if (!items.length) { tip.style.display = "none"; tip.dataset.node = ""; return; }
+
+  if (tip.dataset.node !== String(hit.id)) {       // rebuild the list only when the hovered node changes
+    const ul = document.createElement("ul");
+    for (const text of items) {
+      const li = document.createElement("li");
+      li.textContent = text;                       // textContent: items are always shown as plain text
+      ul.appendChild(li);
+    }
+    tip.replaceChildren(ul);
+    tip.dataset.node = String(hit.id);
+  }
+  tip.style.display = "block";
+
+  // Place it just under the node; flip above it if there is no room; keep it inside the window.
+  const left = view.x + view.scale * (hit.x - hit.w / 2);
+  const below = view.y + view.scale * (hit.y + hit.h / 2) + 6;
+  const above = view.y + view.scale * (hit.y - hit.h / 2) - 6 - tip.offsetHeight;
+  const top = below + tip.offsetHeight > window.innerHeight - 8 ? above : below;
+  tip.style.left = Math.max(8, Math.min(left, window.innerWidth - tip.offsetWidth - 8)) + "px";
+  tip.style.top = Math.max(8, top) + "px";
+}
 
 resize();
 actions.fit();
