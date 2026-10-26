@@ -8,10 +8,19 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
   canvas { display: block; width: 100%; height: 100%; cursor: grab; }
   #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
+  #cam { position: fixed; right: 10px; bottom: 10px; width: 240px; font-size: 12px; color: #444; background: #fffc; padding: 8px; border-radius: 8px; }
+  #camBox { display: none; position: relative; width: 100%; aspect-ratio: 4 / 3; margin-bottom: 6px; background: #000; border-radius: 6px; overflow: hidden; }
+  #camBox video, #camBox canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); } /* mirror like a selfie view */
+  #camBtn { width: 100%; margin-bottom: 4px; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="cam">
+  <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
+  <button id="camBtn">Enable camera</button>
+  <div id="camStatus">camera off</div>
+</div>
 <div id="help">
   drag background: pan · wheel: zoom · shift+wheel: rotate · double-click background: new node (child of selected) ·
   double-click node: rename · Delete: remove selected · R: reset view
@@ -194,6 +203,73 @@ window.addEventListener("keydown", e => {
 resize();
 actions.reset();
 draw();
+</script>
+
+<script type="module">
+/* ---------- 6. HAND LANDMARKER (step 1: load, see the hands, no gestures yet) ---------- */
+const MP_VERSION = "latest";   // once it works, pin an exact version (e.g. "0.10.21") for reproducibility
+const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+const btn = document.getElementById("camBtn");
+const box = document.getElementById("camBox");
+const video = document.getElementById("camVideo");
+const overlay = document.getElementById("camOverlay");
+const octx = overlay.getContext("2d");
+const setStatus = t => { document.getElementById("camStatus").textContent = t; };
+
+btn.addEventListener("click", async () => {
+  btn.disabled = true;
+  try {
+    setStatus("loading model…");
+    const { FilesetResolver, HandLandmarker, DrawingUtils } = await import(`${MP_BASE}/vision_bundle.mjs`);
+    const fileset = await FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const make = delegate => HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      runningMode: "VIDEO",
+      numHands: 2,
+    });
+    let landmarker;
+    try { landmarker = await make("GPU"); } catch { landmarker = await make("CPU"); }
+
+    setStatus("starting camera…");
+    video.srcObject = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: "user" }, audio: false
+    });
+    await video.play();
+    overlay.width = video.videoWidth;
+    overlay.height = video.videoHeight;
+    box.style.display = "block";
+    btn.style.display = "none";
+
+    const utils = new DrawingUtils(octx);
+    const W = video.videoWidth, H = video.videoHeight;
+    let lastTime = -1;
+
+    function loop() {
+      if (video.currentTime !== lastTime) {          // only process genuinely new frames
+        lastTime = video.currentTime;
+        const result = landmarker.detectForVideo(video, performance.now());
+        octx.clearRect(0, 0, W, H);
+        const lines = [];
+        result.landmarks.forEach((lm, i) => {
+          utils.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: "#2563eb", lineWidth: 3 });
+          utils.drawLandmarks(lm, { color: "#fff", fillColor: "#ef4444", radius: 3 });
+          // pinch = thumb tip (4) to index tip (8), normalised by hand size (wrist 0 to middle knuckle 9)
+          const d = (a, b) => Math.hypot((lm[a].x - lm[b].x) * W, (lm[a].y - lm[b].y) * H);
+          lines.push(`hand ${i + 1}: pinch ${(d(4, 8) / d(0, 9)).toFixed(2)}`);
+        });
+        setStatus(lines.length ? lines.join(" · ") : "no hand detected");
+      }
+      requestAnimationFrame(loop);
+    }
+    loop();
+  } catch (err) {
+    console.error(err);
+    setStatus("error: " + (err.message || err));
+    btn.disabled = false;
+  }
+});
 </script>
 </body>
 </html>
