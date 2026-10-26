@@ -17,7 +17,7 @@
   --list-accent: var(--ochre, var(--amber, #c48a4c));
   --list-dim: var(--dim, #8b867b);
   --list-mono: var(--font-data, "Courier New", monospace);
-  --list-size: 1.2em;   /* size of bulleted items: raise for bigger, e.g. 1.4em */
+  --list-size: 0.95em;  /* size of bulleted items: 1em matches the body text, lower is smaller */
 }
 
 /* ---------- Remove the browser's own markers ---------- */
