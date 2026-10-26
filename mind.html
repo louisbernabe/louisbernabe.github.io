@@ -8,6 +8,8 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
   canvas { display: block; width: 100%; height: 100%; cursor: grab; }
   #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
+  #bar { position: fixed; top: 10px; left: 10px; display: flex; gap: 6px; align-items: center; font-size: 12px; }
+  #dirty { color: #b45309; }
   #toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #111d; color: #fff; font-size: 13px; padding: 6px 12px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   #cam { position: fixed; right: 10px; bottom: 10px; width: 240px; font-size: 12px; color: #444; background: #fffc; padding: 8px; border-radius: 8px; }
   #camBox { display: none; position: relative; width: 100%; aspect-ratio: 4 / 3; margin-bottom: 6px; background: #000; border-radius: 6px; overflow: hidden; }
@@ -30,6 +32,12 @@
   Delete: remove selected and its sub nodes · R: reset view
 </div>
 <div id="toast"></div>
+<div id="bar">
+  <button id="saveBtn" title="Ctrl+S">Save</button>
+  <button id="openBtn">Open…</button>
+  <span id="dirty"></span>
+  <input type="file" id="fileInput" accept=".json,application/json" hidden>
+</div>
 
 <script>
 "use strict";
@@ -100,6 +108,94 @@ const root = addNode("Main idea", 0, 0);
 addNode("Branch A", 180, -90, root.id);
 addNode("Branch B", 180, 90, root.id);
 let selected = root;
+
+/* ---------- SAVE / LOAD (JSON file) ---------- */
+let dirty = false;                       // true when the tree has changes that are not saved yet
+function setDirty(v) {
+  dirty = v;
+  document.getElementById("dirty").textContent = v ? "● unsaved changes" : "";
+}
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+function saveTree() {
+  const r2 = v => Math.round(v * 100) / 100;
+  const data = {
+    format: "mindmap", version: 1,
+    nextId,
+    nodes: nodes.map(n => ({ id: n.id, text: n.text, x: r2(n.x), y: r2(n.y), parent: n.parent })),
+    view: { x: r2(view.x), y: r2(view.y), scale: view.scale, angle: view.angle },
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "mindmap.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setDirty(false);
+  toast("Downloaded mindmap.json");
+}
+
+// Checks a loaded file before touching the current tree, so a bad file can never corrupt it.
+function parseTree(text) {
+  const data = JSON.parse(text);
+  if (!data || !Array.isArray(data.nodes) || data.nodes.length === 0) throw new Error("no nodes found");
+  const byId = new Map();
+  for (const n of data.nodes) {
+    if (!Number.isFinite(n.id) || typeof n.text !== "string" || !Number.isFinite(n.x) || !Number.isFinite(n.y))
+      throw new Error("invalid node");
+    if (byId.has(n.id)) throw new Error("duplicate id " + n.id);
+    byId.set(n.id, n);
+  }
+  let roots = 0;
+  const counts = new Map();
+  for (const n of data.nodes) {
+    if (n.parent === null || n.parent === undefined) { roots++; continue; }
+    if (!byId.has(n.parent)) throw new Error("node " + n.id + " has an unknown parent");
+    const c = (counts.get(n.parent) || 0) + 1;
+    if (c > MAX_CHILDREN) throw new Error("a node has more than " + MAX_CHILDREN + " sub nodes");
+    counts.set(n.parent, c);
+  }
+  if (roots !== 1) throw new Error("expected exactly one main node");
+  for (const n of data.nodes) {          // every node must lead up to the main node (no cycles)
+    let cur = n, steps = 0;
+    while (cur.parent !== null && cur.parent !== undefined) {
+      cur = byId.get(cur.parent);
+      if (++steps > data.nodes.length) throw new Error("cycle in the tree");
+    }
+  }
+  return data;
+}
+
+function applyTree(data) {
+  nodes.length = 0;
+  for (const n of data.nodes) nodes.push({ id: n.id, text: n.text, x: n.x, y: n.y, parent: n.parent ?? null, w: 0, h: 0 });
+  nextId = Math.max(Number.isFinite(data.nextId) ? data.nextId : 0, Math.max(...nodes.map(n => n.id)) + 1);
+  selected = null;
+  const v = data.view;
+  if (v && [v.x, v.y, v.scale, v.angle].every(Number.isFinite) && v.scale >= 0.1 && v.scale <= 5) {
+    view.x = v.x; view.y = v.y; view.scale = v.scale; view.angle = v.angle;
+  } else {
+    actions.reset();
+  }
+  setDirty(false);
+}
+
+const fileInput = document.getElementById("fileInput");
+document.getElementById("saveBtn").addEventListener("click", saveTree);
+document.getElementById("openBtn").addEventListener("click", () => {
+  if (dirty && !confirm("You have unsaved changes. Open another file anyway?")) return;
+  fileInput.click();
+});
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files[0];
+  fileInput.value = "";                  // allows re-opening the same file later
+  if (!file) return;
+  try { applyTree(parseTree(await file.text())); toast("Opened " + file.name); }
+  catch (err) { toast("Could not open file: " + err.message); }
+});
+window.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveTree(); }
+});
 
 /* ---------- 2. VIEW + ACTIONS (the API the camera will call later) ---------- */
 // screen = view.pos + scale * Rot(angle) * world
@@ -228,7 +324,7 @@ canvas.addEventListener("mousedown", e => {
   const plusOwner = plusAt(w.x, w.y);
   if (plusOwner) {                                   // click on a "+": add a sub node, no dragging
     const child = addChild(plusOwner);
-    if (child) selected = child;
+    if (child) { selected = child; setDirty(true); }
     return;
   }
   const hit = nodeAt(w.x, w.y);
@@ -246,10 +342,14 @@ window.addEventListener("mousemove", e => {
     const dx = b.x - a.x, dy = b.y - a.y;
     const moving = drag.single ? [drag.node] : [drag.node, ...descendantsOf(drag.node)];
     for (const n of moving) { n.x += dx; n.y += dy; }
+    if (dx || dy) drag.moved = true;
   }
   drag.last = m;
 });
-window.addEventListener("mouseup", () => { drag = null; });
+window.addEventListener("mouseup", () => {
+  if (drag && drag.moved) setDirty(true);
+  drag = null;
+});
 
 canvas.addEventListener("wheel", e => {
   e.preventDefault();
@@ -262,13 +362,13 @@ canvas.addEventListener("dblclick", e => {
   const m = mousePos(e), w = toWorld(m.x, m.y), hit = nodeAt(w.x, w.y);
   if (hit) {
     const t = prompt("Node text:", hit.text);
-    if (t !== null && t.trim()) hit.text = t.trim();
+    if (t !== null && t.trim() && t.trim() !== hit.text) { hit.text = t.trim(); setDirty(true); }
   }
 });
 
 window.addEventListener("keydown", e => {
   if (e.key === "r" || e.key === "R") actions.reset();
-  if (e.key === "Delete" && selected && selected !== root) {
+  if (e.key === "Delete" && selected && selected.parent !== null) {   // the main node (no parent) can't be deleted
     const doomed = new Set([selected.id]);
     let grew = true;
     while (grew) {                       // collect descendants
@@ -278,6 +378,7 @@ window.addEventListener("keydown", e => {
     }
     for (let i = nodes.length - 1; i >= 0; i--) if (doomed.has(nodes[i].id)) nodes.splice(i, 1);
     selected = null;
+    setDirty(true);
   }
 });
 
