@@ -1,23 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<link rel="stylesheet" type="text/css" href="/css/bladerunner.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-lists.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-mobile.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-hover.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-light.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-topbar.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-contact-align.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-paragraphs.css">
-		<link rel="stylesheet" type="text/css" href="/css/bladerunner-flag-toggle.css">
-		
-		<meta name="viewport" content="width=device-width, initial-scale=1">
-
-		<link rel="icon" href="/images/mindmap (1).png" type="image/svg+xml">
-		<link rel="icon" href="/images/mindmap (1).png" sizes="32x32">
-		<link rel="apple-touch-icon" href="/images/IMG_3022 (2) (1).png">
-
-		<script src="bladerunner-links-fx.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mind map (view only)</title>
@@ -29,30 +12,21 @@
   #camBox { display: none; position: relative; width: 100%; aspect-ratio: 4 / 3; margin-bottom: 6px; background: #000; border-radius: 6px; overflow: hidden; }
   #camBox video, #camBox canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); } /* mirror like a selfie view */
   #camBtn { width: 100%; margin-bottom: 4px; }
+  @media (max-width: 700px), (pointer: coarse) {
+    #cam { width: 150px; padding: 6px; font-size: 11px; }
+    #camLegend { display: none; }
+    #help { bottom: auto; top: 10px; left: 10px; right: 10px; font-size: 11px; }
+  }
 </style>
 </head>
 <body>
-  <nav>
-    		<ul class="topbar">
-        		<li><a href="/">Home</a></li>
-	        	<li><a href="/about">About</a></li>
-        		<li><a href="/blog">Blog</a></li>
-				<li><a href="/projects">Projects</a></li>
-				<li><a href="/courses">Education</a></li>
-				<li><a href="/mindmap">Mind Map</a></li>
-				<li><a href="/fr/" hreflang="fr" lang="fr" aria-label="Français" title="Français">FR</a></li>
-    		</ul>
-		</nav>
-	<div class="container">
-	<h2>Here is a visual summary </br> of what I've learned so far:</h2>
-	</div>
 <canvas id="c"></canvas>
 
 <div id="cam">
   <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
   <button id="camBtn">Enable camera</button>
   <label><input type="checkbox" id="gestOn" checked> gestures drive the zoom</label>
-  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · move your hand outside the dashed box = move the map (left, right, up, down) · hand inside the box, relaxed = nothing</div>
+  <div id="camLegend" style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · move your hand outside the dashed box = move the map (left, right, up, down) · hand inside the box, relaxed = nothing</div>
   <div id="camStatus" style="white-space:pre-line">camera off</div>
 </div>
 <div id="help">view only · camera pinch: zoom · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
@@ -91,6 +65,8 @@ const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const view = { x: 0, y: 0, scale: 1 };           // screen = view.pos + scale * world
 const MIN_SCALE = 0.1, MAX_SCALE = 5;
+// Phones and tablets (touch screens, narrow windows); same media query as the CSS below.
+const IS_MOBILE = window.matchMedia("(max-width: 700px), (pointer: coarse)").matches;
 
 const fontFor = n => n.parent === null ? "bold 18px system-ui, sans-serif" : "16px system-ui, sans-serif";
 function measure() {
@@ -112,16 +88,23 @@ const actions = {
   },
   fit() {                                         // fit the whole map on screen
     measure();
-    const cw = canvas.clientWidth, ch = canvas.clientHeight, pad = 60;
+    const cw = canvas.clientWidth, ch = canvas.clientHeight, pad = 40;
+    const padTop = IS_MOBILE ? 70 : 40;           // on mobile the help text sits at the top, so leave room for it
+    // Keep the map above the camera panel: reserve the height the panel will have once the camera is on.
+    const cam = document.getElementById("cam"), camBox = document.getElementById("camBox");
+    const boxH = camBox.style.display === "block" ? 0 : (cam.clientWidth - 16) * (IS_MOBILE ? 4 / 3 : 3 / 4) + 6;
+    const reserve = Math.min(cam.offsetHeight + boxH + 20, ch * 0.5);
+    const availH = Math.max(ch - reserve - padTop, 100);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of nodes) {
       x0 = Math.min(x0, n.x - n.w / 2); x1 = Math.max(x1, n.x + n.w / 2);
       y0 = Math.min(y0, n.y - n.h / 2); y1 = Math.max(y1, n.y + n.h / 2);
     }
-    const s = Math.min((cw - 2 * pad) / (x1 - x0), (ch - 2 * pad) / (y1 - y0), 1.5);
+    const SHRINK = 0.9;                            // a little air around the map: the clusters come out slightly smaller
+    const s = Math.min((cw - 2 * pad) / (x1 - x0), availH / (y1 - y0), 1.5) * SHRINK;
     view.scale = s;
-    view.x = cw / 2 - s * (x0 + x1) / 2;
-    view.y = ch / 2 - s * (y0 + y1) / 2;
+    view.x = cw / 2 - s * (x0 + x1) / 2;           // centered horizontally
+    view.y = padTop - s * y0;                      // top edge of the map at the top margin
   },
 };
 window.actions = actions;                         // used by the camera script below
@@ -195,6 +178,7 @@ const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmark
 
 // Rate-based ("joystick") control: the relaxed pose does nothing; the further you go past a
 // threshold, the faster the map zooms. Same values as the editor; tune them with the on-screen readout.
+// IS_MOBILE comes from the first script: phones and tablets get a smaller neutral box below.
 const G = {
   pinchLow: 0.30,        // smoothed pinch ratio below this  -> zoom out
   pinchHigh: 0.90,       // above this                        -> zoom in
@@ -207,8 +191,8 @@ const G = {
   pan: true,             // set to false to switch hand-position movement off
   panDir: 1,             //  1: the view moves toward your hand (hand right -> you see more of the right)
                          // -1: the opposite (the map follows your hand like a grabbed sheet)
-  panDead: 0.18,         // half-size of the neutral box, as a fraction of the camera frame (0.18 = central 36%)
-  panGain: 700,          // screen pixels per second per unit of frame fraction beyond the box (max about 220 px/s)
+  panDead: IS_MOBILE ? 0.10 : 0.18,  // half-size of the neutral box, as a fraction of the camera frame (0.18 = central 36%; 0.10 = central 20% on mobile)
+  panGain: IS_MOBILE ? 560 : 700,    // screen px/s per unit of frame fraction beyond the box; 560 on mobile keeps the top speed at about 220 px/s
   posSmooth: 0.25,       // smoothing of the hand position (lower = steadier, slower)
 };
 
@@ -240,6 +224,7 @@ btn.addEventListener("click", async () => {
     await video.play();
     overlay.width = video.videoWidth;
     overlay.height = video.videoHeight;
+    box.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;   // phones often give portrait video
     box.style.display = "block";
     btn.style.display = "none";
 
