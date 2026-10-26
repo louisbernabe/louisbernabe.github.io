@@ -104,9 +104,10 @@ function toast(msg) {
   toastTimer = setTimeout(() => { el.style.opacity = 0; }, 1600);
 }
 
-const root = addNode("Main idea", 0, 0);
-addNode("Branch A", 180, -90, root.id);
-addNode("Branch B", 180, 90, root.id);
+// Three independent main nodes (no parent). Each grows its own sub nodes with its "+" button.
+const root = addNode("Main idea 1", -480, 0);
+addNode("Main idea 2", 0, 0);
+addNode("Main idea 3", 480, 0);
 let selected = root;
 
 /* ---------- SAVE / LOAD (JSON file) ---------- */
@@ -155,7 +156,7 @@ function parseTree(text) {
     if (c > MAX_CHILDREN) throw new Error("a node has more than " + MAX_CHILDREN + " sub nodes");
     counts.set(n.parent, c);
   }
-  if (roots !== 1) throw new Error("expected exactly one main node");
+  if (roots < 1) throw new Error("no main node found");
   for (const n of data.nodes) {          // every node must lead up to the main node (no cycles)
     let cur = n, steps = 0;
     while (cur.parent !== null && cur.parent !== undefined) {
