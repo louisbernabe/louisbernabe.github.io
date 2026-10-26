@@ -8,6 +8,7 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
   canvas { display: block; width: 100%; height: 100%; cursor: grab; }
   #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
+  #toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #111d; color: #fff; font-size: 13px; padding: 6px 12px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   #cam { position: fixed; right: 10px; bottom: 10px; width: 240px; font-size: 12px; color: #444; background: #fffc; padding: 8px; border-radius: 8px; }
   #camBox { display: none; position: relative; width: 100%; aspect-ratio: 4 / 3; margin-bottom: 6px; background: #000; border-radius: 6px; overflow: hidden; }
   #camBox video, #camBox canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); } /* mirror like a selfie view */
@@ -24,9 +25,11 @@
   <div id="camStatus" style="white-space:pre-line">camera off</div>
 </div>
 <div id="help">
-  drag background: pan · wheel: zoom · shift+wheel: rotate · double-click background: new node (child of selected) ·
-  double-click node: rename · Delete: remove selected · R: reset view
+  drag background: pan · wheel: zoom · shift+wheel: rotate · blue +: add sub node (max 6) ·
+  drag node: moves its sub nodes too (Alt: node only) · double-click node: rename ·
+  Delete: remove selected and its sub nodes · R: reset view
 </div>
+<div id="toast"></div>
 
 <script>
 "use strict";
@@ -39,14 +42,63 @@ function addNode(text, x, y, parent = null) {
   nodes.push(n);
   return n;
 }
-const root = addNode("Physics", 0, 0);
-addNode("Classical Mechanics", 180, -90, root.id);
-addNode("Newtonian Mechanics I", 240, -90, root.id);
-addNode("Newtonian Mechanics II", 240, -45, root.id);
-addNode("Electrodynamics", 180, 90, root.id);
-addNode("Thermal Physics", -180, 90, root.id);
-addNode("Lab Physics", -180, -90, root.id);
+/* Tree helpers: each node stores its parent's id, so everything else is derived from that. */
+const MAX_CHILDREN = 6;
+const CHILD_DIST = 190;        // distance between a parent and a newly created child
+const PLUS_R = 11;             // radius of the "+" button, in world units
 
+const childrenOf = n => nodes.filter(m => m.parent === n.id);
+function descendantsOf(n) {
+  const out = [], stack = [n];
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const c of childrenOf(cur)) { out.push(c); stack.push(c); }
+  }
+  return out;
+}
+const plusPos = n => ({ x: n.x + n.w / 2 + PLUS_R + 4, y: n.y });   // "+" sits just right of the node
+
+function angDiff(a, b) {
+  const d = Math.abs(a - b) % (2 * Math.PI);
+  return d > Math.PI ? 2 * Math.PI - d : d;
+}
+
+// Creates a child of `parent`, or returns null if the parent already has MAX_CHILDREN.
+// Placement: pick the candidate direction that is farthest from the existing children.
+// Root: any direction (every 30°). Other nodes: a fan pointing away from their own parent.
+function addChild(parent, text = "New idea") {
+  const kids = childrenOf(parent);
+  if (kids.length >= MAX_CHILDREN) { toast(`Maximum ${MAX_CHILDREN} sub nodes per node`); return null; }
+  const grand = nodes.find(m => m.id === parent.parent);
+  const candidates = [];
+  if (grand) {
+    const outward = Math.atan2(parent.y - grand.y, parent.x - grand.x);
+    for (const off of [-15, 15, -45, 45, -75, 75]) candidates.push(outward + off * Math.PI / 180);
+  } else {
+    for (let i = 0; i < 12; i++) candidates.push(i * Math.PI / 6);
+  }
+  let best = candidates[0], bestScore = -1;
+  for (const a of candidates) {
+    const score = kids.length
+      ? Math.min(...kids.map(k => angDiff(a, Math.atan2(k.y - parent.y, k.x - parent.x))))
+      : 1;
+    if (score > bestScore + 1e-9) { best = a; bestScore = score; }
+  }
+  return addNode(text, parent.x + CHILD_DIST * Math.cos(best), parent.y + CHILD_DIST * Math.sin(best), parent.id);
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.opacity = 0; }, 1600);
+}
+
+const root = addNode("Main idea", 0, 0);
+addNode("Branch A", 180, -90, root.id);
+addNode("Branch B", 180, 90, root.id);
 let selected = root;
 
 /* ---------- 2. VIEW + ACTIONS (the API the camera will call later) ---------- */
@@ -130,6 +182,20 @@ function draw() {
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = "#111";
     ctx.fillText(n.text, n.x, n.y);
+
+    // "+" button (greyed out once the node has MAX_CHILDREN sub nodes)
+    const full = childrenOf(n).length >= MAX_CHILDREN;
+    const b = plusPos(n);
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, PLUS_R, 0, 2 * Math.PI);
+    ctx.fillStyle = full ? "#d1d5db" : "#2563eb";
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(b.x - 5, b.y); ctx.lineTo(b.x + 5, b.y);
+    ctx.moveTo(b.x, b.y - 5); ctx.lineTo(b.x, b.y + 5);
+    ctx.stroke();
   }
   requestAnimationFrame(draw);
 }
@@ -149,9 +215,24 @@ function mousePos(e) {
 
 let drag = null; // {type: "pan"|"node", node?, last:{x,y}}
 
+function plusAt(wx, wy) {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const b = plusPos(nodes[i]);
+    if (Math.hypot(wx - b.x, wy - b.y) <= PLUS_R + 2) return nodes[i];
+  }
+  return null;
+}
+
 canvas.addEventListener("mousedown", e => {
-  const m = mousePos(e), w = toWorld(m.x, m.y), hit = nodeAt(w.x, w.y);
-  if (hit) { selected = hit; drag = { type: "node", node: hit }; }
+  const m = mousePos(e), w = toWorld(m.x, m.y);
+  const plusOwner = plusAt(w.x, w.y);
+  if (plusOwner) {                                   // click on a "+": add a sub node, no dragging
+    const child = addChild(plusOwner);
+    if (child) selected = child;
+    return;
+  }
+  const hit = nodeAt(w.x, w.y);
+  if (hit) { selected = hit; drag = { type: "node", node: hit, single: e.altKey }; }
   else     { selected = null;  drag = { type: "pan" }; }
   drag.last = m;
 });
@@ -162,8 +243,9 @@ window.addEventListener("mousemove", e => {
     actions.pan(m.x - drag.last.x, m.y - drag.last.y);
   } else {
     const a = toWorld(drag.last.x, drag.last.y), b = toWorld(m.x, m.y);
-    drag.node.x += b.x - a.x;
-    drag.node.y += b.y - a.y;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const moving = drag.single ? [drag.node] : [drag.node, ...descendantsOf(drag.node)];
+    for (const n of moving) { n.x += dx; n.y += dy; }
   }
   drag.last = m;
 });
@@ -181,8 +263,6 @@ canvas.addEventListener("dblclick", e => {
   if (hit) {
     const t = prompt("Node text:", hit.text);
     if (t !== null && t.trim()) hit.text = t.trim();
-  } else {
-    selected = addNode("New idea", w.x, w.y, selected ? selected.id : root.id);
   }
 });
 
