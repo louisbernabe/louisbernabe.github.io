@@ -90,6 +90,17 @@ const DATA = [
   [17, "Finance",                     480, -190,      3],
   [18, "Marketing",                662.54,  131,      3],
   [19, "Operations",                  290, 114.54,    3],
+  // Second row, centred under the first three clusters
+  [20, "Soft Skills",                -300,  500,      null],
+  [21, "Computer Science",            300,  500,      null],
+  [22, "Public Speaking",            -300,  310,      20],
+  [23, "Communication",              -490,  500,      20],
+  [24, "Leadership",                 -110,  500,      20],
+  [25, "Teamwork",                   -300,  690,      20],
+  [26, "Algorithms & Data Structures", 300, 310,      21],
+  [27, "Data Science",                300,  690,      21],
+  [28, "Computer Security",           110,  500,      21],
+  [29, "Operating Systems",           490,  500,      21],
 ];
 const nodes = DATA.map(([id, text, x, y, parent]) => ({ id, text, x, y, parent, w: 0, h: 0 }));
 const byId = new Map(nodes.map(n => [n.id, n]));
