@@ -34,9 +34,7 @@
   #tip ul { margin: 0; padding-left: 18px; }
   #tip li { margin: 2px 0; }
   @media (max-width: 700px), (pointer: coarse) {
-    #cam { width: 150px; padding: 6px; font-size: 11px; }
-    #camLegend { display: none; }
-    #help { bottom: auto; top: 10px; left: 10px; right: 10px; font-size: 11px; }
+    #cam, #help { display: none; }   /* no camera on mobile: the map gets the whole screen */
   }
 </style>
 </head>
@@ -198,7 +196,7 @@ const IS_MOBILE = window.matchMedia("(max-width: 700px), (pointer: coarse)").mat
 
 // On mobile the three clusters are stacked vertically instead of side by side (the text stays horizontal).
 // Each cluster (a main node plus everything below it) moves as a whole; the layout inside it is unchanged.
-const MOBILE_ROW_SPACING = 500;                  // vertical distance between the three main nodes
+const MOBILE_ROW_SPACING = 480;                  // vertical distance between the three main nodes
 if (IS_MOBILE) {
   const mains = nodes.filter(n => n.parent === null).sort((a, b) => a.x - b.x);   // left to right in the original layout
   mains.forEach((m, i) => {
@@ -234,23 +232,27 @@ const actions = {
   fit() {                                         // fit the whole map on screen
     measure();
     const cw = canvas.clientWidth, ch = canvas.clientHeight, pad = IS_MOBILE ? 10 : 40;
-    const padTop = IS_MOBILE ? 70 : 40;           // on mobile the help text sits at the top, so leave room for it
+    // If the topbar/heading overlaps the top of the canvas (instead of sitting above it), keep the map below them.
+    const canvasTop = canvas.getBoundingClientRect().top;
+    const inset = Math.max(0, ...["nav", ".container"].map(sel => {
+      const el = document.querySelector(sel);
+      return el ? el.getBoundingClientRect().bottom - canvasTop : 0;
+    }));
+    const padTop = (IS_MOBILE ? 10 : 40) + inset;  // mobile has no help text or camera panel, so the margin is small
     // Keep the map above the camera panel: reserve the height the panel will have once the camera is on.
     const cam = document.getElementById("cam"), camBox = document.getElementById("camBox");
     // Desktop: reserve the panel as it will be once the camera is on (preview included).
-    // Mobile: the stacked map is tall, so reserve only the collapsed panel (button + status); with the
-    // preview switched on, it then covers a small part of the bottom-right corner of the map.
+    // Mobile: the camera panel is hidden, so only a small bottom margin is kept.
     const previewOn = camBox.style.display === "block";
-    const boxH = IS_MOBILE ? (previewOn ? -(camBox.offsetHeight + 6) : 0)
-                           : (previewOn ? 0 : (cam.clientWidth - 16) * 3 / 4 + 6);
-    const reserve = Math.min(cam.offsetHeight + boxH + (IS_MOBILE ? 14 : 20), ch * 0.5);
+    const boxH = previewOn ? 0 : (cam.clientWidth - 16) * 3 / 4 + 6;
+    const reserve = IS_MOBILE ? 10 : Math.min(cam.offsetHeight + boxH + 20, ch * 0.5);
     const availH = Math.max(ch - reserve - padTop, 100);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of nodes) {
       x0 = Math.min(x0, n.x - n.w / 2); x1 = Math.max(x1, n.x + n.w / 2);
       y0 = Math.min(y0, n.y - n.h / 2); y1 = Math.max(y1, n.y + n.h / 2);
     }
-    const SHRINK = IS_MOBILE ? 0.97 : 0.9;                            // a little air around the map: the clusters come out slightly smaller
+    const SHRINK = IS_MOBILE ? 1 : 0.9;                            // a little air around the map: the clusters come out slightly smaller
     const s = Math.min((cw - 2 * pad) / (x1 - x0), availH / (y1 - y0), 1.5) * SHRINK;
     view.scale = s;
     view.x = cw / 2 - s * (x0 + x1) / 2;           // centered horizontally
@@ -265,7 +267,14 @@ function resize() {
   canvas.width = canvas.clientWidth * dpr;
   canvas.height = canvas.clientHeight * dpr;
 }
-window.addEventListener("resize", resize);
+// Your topbar and heading sit above the canvas, so make the canvas exactly as tall as the space left below them.
+// Otherwise its bottom part would be cut off and the fit would misjudge the available height.
+function layoutCanvas() {
+  const top = canvas.getBoundingClientRect().top;
+  canvas.style.height = Math.max(100, window.innerHeight - Math.max(0, top)) + "px";
+  resize();
+}
+window.addEventListener("resize", layoutCanvas);
 
 function draw() {
   updateHover();
@@ -351,15 +360,16 @@ function updateHover() {
   tip.style.display = "block";
 
   // Place it just under the node; flip above it if there is no room; keep it inside the window.
-  const left = view.x + view.scale * (hit.x - hit.w / 2);
-  const below = view.y + view.scale * (hit.y + hit.h / 2) + 6;
-  const above = view.y + view.scale * (hit.y - hit.h / 2) - 6 - tip.offsetHeight;
+  const r = canvas.getBoundingClientRect();         // the canvas is not at the very top of the page (topbar above it)
+  const left = r.left + view.x + view.scale * (hit.x - hit.w / 2);
+  const below = r.top + view.y + view.scale * (hit.y + hit.h / 2) + 6;
+  const above = r.top + view.y + view.scale * (hit.y - hit.h / 2) - 6 - tip.offsetHeight;
   const top = below + tip.offsetHeight > window.innerHeight - 8 ? above : below;
   tip.style.left = Math.max(8, Math.min(left, window.innerWidth - tip.offsetWidth - 8)) + "px";
   tip.style.top = Math.max(8, top) + "px";
 }
 
-resize();
+layoutCanvas();
 actions.fit();
 draw();
 </script>
@@ -372,7 +382,7 @@ const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmark
 
 // Rate-based ("joystick") control: the relaxed pose does nothing; the further you go past a
 // threshold, the faster the map zooms. Same values as the editor; tune them with the on-screen readout.
-// IS_MOBILE comes from the first script: phones and tablets get a smaller neutral box below.
+// IS_MOBILE comes from the first script: on phones and tablets the camera is disabled.
 const G = {
   pinchLow: 0.30,        // smoothed pinch ratio below this  -> zoom out
   pinchHigh: 0.90,       // above this                        -> zoom in
@@ -385,8 +395,8 @@ const G = {
   pan: true,             // set to false to switch hand-position movement off
   panDir: 1,             //  1: the view moves toward your hand (hand right -> you see more of the right)
                          // -1: the opposite (the map follows your hand like a grabbed sheet)
-  panDead: IS_MOBILE ? 0.10 : 0.18,  // half-size of the neutral box, as a fraction of the camera frame (0.18 = central 36%; 0.10 = central 20% on mobile)
-  panGain: IS_MOBILE ? 560 : 700,    // screen px/s per unit of frame fraction beyond the box; 560 on mobile keeps the top speed at about 220 px/s
+  panDead: 0.18,         // half-size of the neutral box, as a fraction of the camera frame (0.18 = central 36%)
+  panGain: 700,          // screen pixels per second per unit of frame fraction beyond the box (max about 220 px/s)
   posSmooth: 0.25,       // smoothing of the hand position (lower = steadier, slower)
 };
 
@@ -398,6 +408,7 @@ const octx = overlay.getContext("2d");
 const setStatus = t => { document.getElementById("camStatus").textContent = t; };
 
 btn.addEventListener("click", async () => {
+  if (IS_MOBILE) return;                         // the camera is disabled on mobile
   btn.disabled = true;
   try {
     setStatus("loading model…");
