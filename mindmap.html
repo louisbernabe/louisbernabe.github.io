@@ -23,6 +23,8 @@
 <title>Mind map (view only)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
+  html.mobile-scroll { height: auto; overflow: auto; }          /* mobile: the page scrolls, the map is as tall as it needs */
+  html.mobile-scroll body { height: auto; overflow: visible; }
   canvas#c { display: block; width: 100%; height: 100%; cursor: grab; }
   #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
   #cam { position: fixed; right: 10px; bottom: 10px; width: 240px; font-size: 12px; color: #444; background: #fffc; padding: 8px; border-radius: 8px; }
@@ -91,16 +93,16 @@ const DATA = [
   [18, "Marketing",                662.54,  131,      3],
   [19, "Operations",                  290, 114.54,    3],
   // Second row, centred under the first three clusters
-  [20, "Soft Skills",                -300,  500,      null],
-  [21, "Computer Science",            300,  500,      null],
-  [22, "Public Speaking",            -300,  310,      20],
-  [23, "Communication",              -490,  500,      20],
-  [24, "Leadership",                 -110,  500,      20],
-  [25, "Teamwork",                   -300,  690,      20],
-  [26, "Algorithms & Data Structures", 300, 310,      21],
-  [27, "Data Science",                300,  690,      21],
-  [28, "Computer Security",           110,  500,      21],
-  [29, "Operating Systems",           490,  500,      21],
+  [20, "Soft Skills",                -320,  500,      null],
+  [21, "Computer Science",            320,  500,      null],
+  [22, "Public Speaking",            -320,  310,      20],
+  [23, "Communication",              -510,  500,      20],
+  [24, "Leadership",                 -130,  500,      20],
+  [25, "Teamwork",                   -320,  690,      20],
+  [26, "Algorithms & Data Structures", 320, 310,      21],
+  [27, "Data Science",                320,  690,      21],
+  [28, "Computer Security",            90,  500,      21],   // 230 from its main node: "Computer Science" is a wide label
+  [29, "Operating Systems",           550,  500,      21],
 ];
 const nodes = DATA.map(([id, text, x, y, parent]) => ({ id, text, x, y, parent, w: 0, h: 0 }));
 const byId = new Map(nodes.map(n => [n.id, n]));
@@ -195,6 +197,16 @@ const DETAILS = {
     "Operations II - ESADE",
     "Operations III - ESADE",
   ],
+  // Soft Skills (no items yet: add your own)
+  "Public Speaking": [],
+  "Communication": [],
+  "Leadership": [],
+  "Teamwork": [],
+  // Computer Science (no items yet: add your own)
+  "Algorithms & Data Structures": [],
+  "Data Science": [],
+  "Computer Security": [],
+  "Operating Systems": [],
 };
 
 /* ---------- 2. VIEW + ACTIONS (the only things that can change: zoom and pan) ---------- */
@@ -204,12 +216,16 @@ const view = { x: 0, y: 0, scale: 1 };           // screen = view.pos + scale * 
 const MIN_SCALE = 0.1, MAX_SCALE = 5;
 // Phones and tablets (touch screens, narrow windows); same media query as the CSS below.
 const IS_MOBILE = window.matchMedia("(max-width: 700px), (pointer: coarse)").matches;
+// Five stacked clusters are too tall to read on one phone screen, so on mobile the map is fitted to the screen
+// WIDTH (readable text) and the page scrolls. Set to false to squeeze everything into one screen instead (tiny text).
+const MOBILE_SCROLL = true;
+if (IS_MOBILE && MOBILE_SCROLL) document.documentElement.classList.add("mobile-scroll");
 
 // On mobile the three clusters are stacked vertically instead of side by side (the text stays horizontal).
 // Each cluster (a main node plus everything below it) moves as a whole; the layout inside it is unchanged.
 const MOBILE_ROW_SPACING = 480;                  // vertical distance between the three main nodes
 if (IS_MOBILE) {
-  const mains = nodes.filter(n => n.parent === null).sort((a, b) => a.x - b.x);   // left to right in the original layout
+  const mains = nodes.filter(n => n.parent === null).sort((a, b) => a.id - b.id);   // in the order of the DATA table
   mains.forEach((m, i) => {
     const dx = -m.x;
     const dy = (i - (mains.length - 1) / 2) * MOBILE_ROW_SPACING - m.y;
@@ -231,6 +247,17 @@ function measure() {
   }
 }
 
+// Bounding box of all nodes (world coordinates), using the measured node sizes.
+function bounds() {
+  measure();
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) {
+    x0 = Math.min(x0, n.x - n.w / 2); x1 = Math.max(x1, n.x + n.w / 2);
+    y0 = Math.min(y0, n.y - n.h / 2); y1 = Math.max(y1, n.y + n.h / 2);
+  }
+  return { x0, y0, x1, y1 };
+}
+
 const actions = {
   pan(dx, dy) { view.x += dx; view.y += dy; },
   zoom(factor, sx, sy) {                          // keeps the point under (sx, sy) fixed
@@ -241,8 +268,10 @@ const actions = {
     view.y = sy - wy * s;
   },
   fit() {                                         // fit the whole map on screen
-    measure();
-    const cw = canvas.clientWidth, ch = canvas.clientHeight, pad = IS_MOBILE ? 10 : 40;
+    const b = bounds();
+    const mapW = b.x1 - b.x0, mapH = b.y1 - b.y0;
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    const pad = IS_MOBILE ? 10 : 40;
     // If the topbar/heading overlaps the top of the canvas (instead of sitting above it), keep the map below them.
     const canvasTop = canvas.getBoundingClientRect().top;
     const inset = Math.max(0, ...["nav", ".container"].map(sel => {
@@ -250,24 +279,28 @@ const actions = {
       return el ? el.getBoundingClientRect().bottom - canvasTop : 0;
     }));
     const padTop = (IS_MOBILE ? 10 : 40) + inset;  // mobile has no help text or camera panel, so the margin is small
-    // Keep the map above the camera panel: reserve the height the panel will have once the camera is on.
-    const cam = document.getElementById("cam"), camBox = document.getElementById("camBox");
-    // Desktop: reserve the panel as it will be once the camera is on (preview included).
-    // Mobile: the camera panel is hidden, so only a small bottom margin is kept.
-    const previewOn = camBox.style.display === "block";
-    const boxH = previewOn ? 0 : (cam.clientWidth - 16) * 3 / 4 + 6;
-    const reserve = IS_MOBILE ? 10 : Math.min(cam.offsetHeight + boxH + 20, ch * 0.5);
-    const availH = Math.max(ch - reserve - padTop, 100);
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const n of nodes) {
-      x0 = Math.min(x0, n.x - n.w / 2); x1 = Math.max(x1, n.x + n.w / 2);
-      y0 = Math.min(y0, n.y - n.h / 2); y1 = Math.max(y1, n.y + n.h / 2);
+    const SHRINK = IS_MOBILE ? 1 : 0.9;            // desktop: a little air around the map
+    let s, cx;                                     // scale, and the screen x of the map's horizontal centre
+    if (IS_MOBILE) {
+      // No camera panel here, and the canvas is as tall as the map needs (see layoutCanvas): a width fit.
+      s = Math.min((cw - 2 * pad) / mapW, (ch - padTop - 10) / mapH);
+      cx = cw / 2;
+    } else {
+      // The camera panel sits in the bottom-right corner. Keep the map either beside it (left of the panel,
+      // full height) or above it (full width), whichever gives the bigger map.
+      const cam = document.getElementById("cam"), camBox = document.getElementById("camBox");
+      const previewH = camBox.style.display === "block" ? 0 : (cam.clientWidth - 16) * 3 / 4 + 6;  // preview appears with the camera
+      const panelW = cam.offsetWidth + 20;                         // panel + its 10px offset + a 10px gap
+      const panelH = cam.offsetHeight + previewH + 20;
+      const sBeside = Math.min((cw - 2 * pad - panelW) / mapW, (ch - padTop - 10) / mapH);
+      const sAbove  = Math.min((cw - 2 * pad) / mapW, (ch - padTop - panelH) / mapH);
+      s = Math.max(sBeside, sAbove, 0.05);
+      cx = sBeside >= sAbove ? (pad + cw - panelW) / 2 : cw / 2;
     }
-    const SHRINK = IS_MOBILE ? 1 : 0.9;                            // a little air around the map: the clusters come out slightly smaller
-    const s = Math.min((cw - 2 * pad) / (x1 - x0), availH / (y1 - y0), 1.5) * SHRINK;
+    s = Math.min(s, 1.5) * SHRINK;
     view.scale = s;
-    view.x = cw / 2 - s * (x0 + x1) / 2;           // centered horizontally
-    view.y = padTop - s * y0;                      // top edge of the map at the top margin
+    view.x = cx - s * (b.x0 + b.x1) / 2;
+    view.y = padTop - s * b.y0;                    // top edge of the map at the top margin
   },
 };
 window.actions = actions;                         // used by the camera script below
@@ -281,11 +314,17 @@ function resize() {
 // Your topbar and heading sit above the canvas, so make the canvas exactly as tall as the space left below them.
 // Otherwise its bottom part would be cut off and the fit would misjudge the available height.
 function layoutCanvas() {
-  const top = canvas.getBoundingClientRect().top;
-  canvas.style.height = Math.max(100, window.innerHeight - Math.max(0, top)) + "px";
+  const top = Math.max(0, canvas.getBoundingClientRect().top);
+  let h = Math.max(100, window.innerHeight - top);            // default: exactly the space left below the topbar/heading
+  if (IS_MOBILE && MOBILE_SCROLL) {                            // mobile: as tall as the whole map needs; the page scrolls
+    const b = bounds();
+    const s = (canvas.clientWidth - 20) / (b.x1 - b.x0);
+    h = Math.max(h, Math.ceil(s * (b.y1 - b.y0) + 20));
+  }
+  canvas.style.height = h + "px";
   resize();
 }
-window.addEventListener("resize", layoutCanvas);
+window.addEventListener("resize", () => { layoutCanvas(); if (IS_MOBILE) actions.fit(); });
 
 function draw() {
   updateHover();
