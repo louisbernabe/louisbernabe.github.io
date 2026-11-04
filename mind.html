@@ -30,6 +30,7 @@
   #tip ul { margin: 0; padding-left: 18px; }
   #tip li { margin: 2px 0; }
   #tip strong { display: block; margin-bottom: 4px; }
+  #tip .hint { margin-top: 6px; font-size: 11px; color: #64748b; }
   #search { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(440px, calc(100% - 24px)); z-index: 10; }
   #q { box-sizing: border-box; width: 100%; padding: 10px 16px; font: 16px system-ui, sans-serif; color: #111; background: #fff;
        border: 1px solid #cbd5e1; border-radius: 999px; box-shadow: 0 2px 8px #0001; outline: none; }
@@ -48,7 +49,7 @@
 <canvas id="c"></canvas>
 <div id="tip"></div>
 
-<div id="help">view only · search bar: page title on the main node, its 8 most frequent words around it · hover a circle for its content · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
+<div id="help">view only · search bar: page title on the main node, its 8 most frequent words around it · hover a circle for its content, click it to make it the main node · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
 
 <script>
 "use strict";
@@ -75,6 +76,7 @@ const CIRCLE_R = 26;       // radius of the circles
 const nodes = [{ id: 0, title: MAIN_TITLE, lines: [], items: [], x: 0, y: 0, parent: null, w: 0, h: 40 }];
 SUBNODES.forEach((sub, i) => nodes.push({
   id: i + 1, title: sub.title, items: sub.items || [], x: 0, y: 0, parent: 0, r: CIRCLE_R, w: 2 * CIRCLE_R, h: 2 * CIRCLE_R,
+  placeholder: true,                                // not a real word: clicking it does nothing
 }));
 const byId = new Map(nodes.map(n => [n.id, n]));
 
@@ -230,12 +232,13 @@ function draw() {
 }
 
 /* ---------- 4. MOUSE FALLBACK (zoom and pan only; there is no way to touch the nodes) ---------- */
-let panning = null;
+let panning = null, dragged = 0;                    // dragged: pointer travel since the press, to tell a click from a pan
 const mousePos = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-canvas.addEventListener("mousedown", e => { panning = mousePos(e); });
+canvas.addEventListener("mousedown", e => { panning = mousePos(e); dragged = 0; });
 window.addEventListener("mousemove", e => {
   if (!panning) return;
   const m = mousePos(e);
+  dragged += Math.abs(m.x - panning.x) + Math.abs(m.y - panning.y);
   actions.pan(m.x - panning.x, m.y - panning.y);
   panning = m;
 });
@@ -257,22 +260,38 @@ let hovered = null;
 canvas.addEventListener("mousemove", e => { const m = mousePos(e); mouse.x = m.x; mouse.y = m.y; mouse.inside = true; });
 canvas.addEventListener("mouseleave", () => { mouse.inside = false; });
 // Touch screens have no hover: tapping a circle reveals its content, tapping elsewhere hides it.
+let lastTouch = 0, armed = null;                  // armed: the circle whose content a first tap has revealed
 canvas.addEventListener("touchstart", e => {
   const t = e.touches[0], r = canvas.getBoundingClientRect();
   mouse.x = t.clientX - r.left; mouse.y = t.clientY - r.top; mouse.inside = true;
+  lastTouch = Date.now();
 }, { passive: true });
+
+// Clicking a circle makes it the main node: the same as searching for its word.
+canvas.addEventListener("click", e => {
+  if (dragged > 5) return;                        // that was a pan, not a click
+  const m = mousePos(e), hit = circleAt(m.x, m.y);
+  if (!hit || hit.placeholder) { armed = null; return; }
+  if (Date.now() - lastTouch < 1000 && armed !== hit.id) { armed = hit.id; return; }   // touch: the first tap only reveals
+  armed = null;
+  qInput.value = hit.title;
+  search(hit.title);
+});
+
+// The circle under a canvas pixel, or null.
+function circleAt(sx, sy) {
+  const wx = (sx - view.x) / view.scale, wy = (sy - view.y) / view.scale;
+  for (let i = nodes.length - 1; i >= 1; i--) {
+    if (Math.hypot(wx - nodes[i].x, wy - nodes[i].y) <= nodes[i].r) return nodes[i];
+  }
+  return null;
+}
 
 // Runs every frame, so the hover stays correct even when the map moves under a still mouse (wheel zoom or pan).
 function updateHover() {
-  let hit = null;
-  if (mouse.inside && !panning) {
-    const wx = (mouse.x - view.x) / view.scale, wy = (mouse.y - view.y) / view.scale;
-    for (let i = nodes.length - 1; i >= 0 && !hit; i--) {
-      const n = nodes[i];
-      if (n.parent !== null && Math.hypot(wx - n.x, wy - n.y) <= n.r) hit = n;
-    }
-  }
+  const hit = mouse.inside && !panning ? circleAt(mouse.x, mouse.y) : null;
   hovered = hit;
+  canvas.style.cursor = hit && !hit.placeholder ? "pointer" : "";   // "" = the stylesheet's grab cursor
   if (!hit) { tip.style.display = "none"; tip.dataset.node = ""; return; }
 
   if (tip.dataset.node !== String(hit.id)) {       // rebuild the content only when the hovered circle changes
@@ -288,6 +307,12 @@ function updateHover() {
         ul.appendChild(li);
       }
       parts.push(ul);
+    }
+    if (!hit.placeholder) {
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = IS_MOBILE ? "Tap again to make it the main node" : "Click to make it the main node";
+      parts.push(hint);
     }
     tip.replaceChildren(...parts);
     tip.dataset.node = String(hit.id);
@@ -406,14 +431,14 @@ function showTopic(title, topics) {
   byId.clear();
   nodes.forEach(n => byId.set(n.id, n));
   hovered = null;
+  armed = null;
   tip.dataset.node = "";
   layoutRing();
   actions.fit();
 }
 
-qInput.addEventListener("keydown", async e => {
-  if (e.key !== "Enter" || e.isComposing) return;
-  const query = qInput.value.trim();
+async function search(query) {
+  query = query.trim();
   if (!query) return;
   if (searchAbort) searchAbort.abort();           // a newer search replaces an older one still running
   searchAbort = new AbortController();
@@ -429,7 +454,8 @@ qInput.addEventListener("keydown", async e => {
   } catch (err) {
     if (err.name !== "AbortError") qStatus.textContent = "Search failed: check your connection and try again";
   }
-});
+}
+qInput.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) return search(qInput.value); });
 
 layoutRing();
 layoutCanvas();
