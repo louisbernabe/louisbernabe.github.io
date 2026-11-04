@@ -1,418 +1,344 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <link rel="stylesheet" type="text/css" href="/css/bladerunner.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-lists.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-mobile.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-hover.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-light.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-topbar.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-contact-align.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-paragraphs.css">
+		<link rel="stylesheet" type="text/css" href="/css/bladerunner-flag-toggle.css">
+		
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+
+		<link rel="icon" href="/images/mindmap (1).png" type="image/svg+xml">
+		<link rel="icon" href="/images/mindmap (1).png" sizes="32x32">
+		<link rel="apple-touch-icon" href="/images/IMG_3022 (2) (1).png">
+
+		<script src="bladerunner-links-fx.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mind map skeleton</title>
+<title>Mind map (view only)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
-  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  canvas#c { display: block; width: 100%; height: 100%; cursor: grab; }
   #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
-  #bar { position: fixed; top: 10px; left: 10px; display: flex; gap: 6px; align-items: center; font-size: 12px; }
-  #dirty { color: #b45309; }
-  #toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #111d; color: #fff; font-size: 13px; padding: 6px 12px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   #cam { position: fixed; right: 10px; bottom: 10px; width: 240px; font-size: 12px; color: #444; background: #fffc; padding: 8px; border-radius: 8px; }
   #camBox { display: none; position: relative; width: 100%; aspect-ratio: 4 / 3; margin-bottom: 6px; background: #000; border-radius: 6px; overflow: hidden; }
   #camBox video, #camBox canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); } /* mirror like a selfie view */
   #camBtn { width: 100%; margin-bottom: 4px; }
+  #tip { position: fixed; display: none; z-index: 5; max-width: 280px; padding: 8px 14px 8px 10px; font-size: 13px; color: #111;
+         background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 14px #0002; pointer-events: none; }
+  #tip ul { margin: 0; padding-left: 18px; }
+  #tip li { margin: 2px 0; }
+  #tip strong { display: block; margin-bottom: 4px; }
+  @media (max-width: 700px), (pointer: coarse) {
+    #cam, #help { display: none; }   /* no camera on mobile: the map gets the whole screen */
+  }
 </style>
 </head>
 <body>
+  <nav>
+    		<ul class="topbar">
+        		<li><a href="/">Home</a></li>
+	        	<li><a href="/about">About</a></li>
+        		<li><a href="/blog">Blog</a></li>
+				<li><a href="/projects">Projects</a></li>
+				<li><a href="/courses">Education</a></li>
+				<li><a href="/mindmap">Mind Map</a></li>
+				<li><a href="/fr/" hreflang="fr" lang="fr" aria-label="Français" title="Français">FR</a></li>
+    		</ul>
+		</nav>
+	<div class="container">
+	<h2>Here is a visual summary </br> of what I've learned so far:</h2>
+	</div>
 <canvas id="c"></canvas>
+<div id="tip"></div>
+
 <div id="cam">
   <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camOverlay"></canvas></div>
   <button id="camBtn">Enable camera</button>
-  <label><input type="checkbox" id="gestOn" checked> gestures drive the map</label>
-  <div style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · relaxed hand = nothing</div>
+  <label><input type="checkbox" id="gestOn" checked> gestures drive the zoom</label>
+  <div id="camLegend" style="margin:4px 0;color:#777">spread thumb/index = zoom in · pinch = zoom out · move your hand outside the dashed box = move the map (left, right, up, down) · hand inside the box, relaxed = nothing</div>
   <div id="camStatus" style="white-space:pre-line">camera off</div>
 </div>
-<div id="help">
-  drag background: pan · wheel: zoom · shift+wheel: rotate · blue +: add sub node (max 6) ·
-  drag node: moves its sub nodes too (Alt: node only) · double-click node: rename ·
-  Delete: remove selected and its sub nodes · R: reset view
-</div>
-<div id="toast"></div>
-<div id="bar">
-  <button id="saveBtn" title="Ctrl+S">Save</button>
-  <button id="openBtn">Open…</button>
-  <span id="dirty"></span>
-  <input type="file" id="fileInput" accept=".json,application/json" hidden>
-</div>
+<div id="help">view only · hover a circle for its content · camera pinch: zoom · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
 
 <script>
 "use strict";
 
-/* ---------- 1. DATA MODEL ---------- */
-let nextId = 1;
-const nodes = [];                        // {id, text, x, y, parent, w, h}
-function addNode(text, x, y, parent = null) {
-  const n = { id: nextId++, text, x, y, parent, w: 0, h: 0 };
-  nodes.push(n);
-  return n;
-}
-/* Tree helpers: each node stores its parent's id, so everything else is derived from that. */
-const MAX_CHILDREN = 6;
-const CHILD_DIST = 190;        // distance between a parent and a newly created child
-const PLUS_R = 11;             // radius of the "+" button, in world units
+/* ---------- 1. CONTENT: edit this part ----------
+   One main node in the centre, and one circle per entry of SUBNODES placed around it, equally spaced
+   (the first at the top, then clockwise). Add or remove entries and the layout adapts by itself.
+   Hovering a circle shows its title and its items. Titles and items are plain text (no HTML). */
+const MAIN_TITLE = "Main idea";                     // PLACEHOLDER: replace with your own
+const SUBNODES = [                                   // PLACEHOLDERS: replace the titles and items with your own
+  { title: "Topic 1", items: ["Item A", "Item B", "Item C"] },
+  { title: "Topic 2", items: ["Item A", "Item B", "Item C"] },
+  { title: "Topic 3", items: ["Item A", "Item B", "Item C"] },
+  { title: "Topic 4", items: ["Item A", "Item B", "Item C"] },
+  { title: "Topic 5", items: ["Item A", "Item B", "Item C"] },
+  { title: "Topic 6", items: ["Item A", "Item B", "Item C"] },
+  { title: "Topic 7", items: ["Item A", "Item B", "Item C"] },
+  { title: "Topic 8", items: ["Item A", "Item B", "Item C"] },
+];
+const RADIUS = 230;        // distance from the main node to the centre of each circle (grows by itself if needed)
+const CIRCLE_R = 26;       // radius of the circles
 
-const childrenOf = n => nodes.filter(m => m.parent === n.id);
-function descendantsOf(n) {
-  const out = [], stack = [n];
-  while (stack.length) {
-    const cur = stack.pop();
-    for (const c of childrenOf(cur)) { out.push(c); stack.push(c); }
+// id 0 = main node; ids 1..N = circles. Positions are set by layoutRing() below.
+const nodes = [{ id: 0, title: MAIN_TITLE, items: [], x: 0, y: 0, parent: null, w: 0, h: 40 }];
+SUBNODES.forEach((sub, i) => nodes.push({
+  id: i + 1, title: sub.title, items: sub.items || [], x: 0, y: 0, parent: 0, r: CIRCLE_R, w: 2 * CIRCLE_R, h: 2 * CIRCLE_R,
+}));
+const byId = new Map(nodes.map(n => [n.id, n]));
+
+/* ---------- 2. VIEW + ACTIONS (the only things that can change: zoom and pan) ---------- */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const view = { x: 0, y: 0, scale: 1 };           // screen = view.pos + scale * world
+const MIN_SCALE = 0.1, MAX_SCALE = 5;
+// Phones and tablets (touch screens, narrow windows); same media query as the CSS above.
+const IS_MOBILE = window.matchMedia("(max-width: 700px), (pointer: coarse)").matches;
+
+const MAIN_FONT = "bold 18px system-ui, sans-serif";
+function measure() {                              // only the main node has a text-dependent size
+  ctx.font = MAIN_FONT;
+  nodes[0].w = ctx.measureText(nodes[0].title).width + 24;
+}
+
+// Equal spacing: circle i sits at angle -90° + i * 360° / N. The ring is made wider if the main node's label
+// is long, or if there are so many circles that neighbours would touch.
+function layoutRing() {
+  measure();
+  const n = nodes.length - 1;
+  const R = Math.max(
+    RADIUS,
+    nodes[0].w / 2 + CIRCLE_R + 30,
+    n > 1 ? (CIRCLE_R + 6) / Math.sin(Math.PI / n) : 0
+  );
+  nodes.slice(1).forEach((node, i) => {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+    node.x = R * Math.cos(a);
+    node.y = R * Math.sin(a);
+  });
+}
+
+// Bounding box of all nodes (world coordinates).
+function bounds() {
+  measure();
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) {
+    x0 = Math.min(x0, n.x - n.w / 2); x1 = Math.max(x1, n.x + n.w / 2);
+    y0 = Math.min(y0, n.y - n.h / 2); y1 = Math.max(y1, n.y + n.h / 2);
   }
-  return out;
-}
-const plusPos = n => ({ x: n.x + n.w / 2 + PLUS_R + 4, y: n.y });   // "+" sits just right of the node
-
-function angDiff(a, b) {
-  const d = Math.abs(a - b) % (2 * Math.PI);
-  return d > Math.PI ? 2 * Math.PI - d : d;
-}
-
-// Creates a child of `parent`, or returns null if the parent already has MAX_CHILDREN.
-// Placement: pick the candidate direction that is farthest from the existing children.
-// Root: any direction (every 30°). Other nodes: a fan pointing away from their own parent.
-function addChild(parent, text = "New idea") {
-  const kids = childrenOf(parent);
-  if (kids.length >= MAX_CHILDREN) { toast(`Maximum ${MAX_CHILDREN} sub nodes per node`); return null; }
-  const grand = nodes.find(m => m.id === parent.parent);
-  const candidates = [];
-  if (grand) {
-    const outward = Math.atan2(parent.y - grand.y, parent.x - grand.x);
-    for (const off of [-15, 15, -45, 45, -75, 75]) candidates.push(outward + off * Math.PI / 180);
-  } else {
-    for (let i = 0; i < 12; i++) candidates.push(i * Math.PI / 6);
-  }
-  let best = candidates[0], bestScore = -1;
-  for (const a of candidates) {
-    const score = kids.length
-      ? Math.min(...kids.map(k => angDiff(a, Math.atan2(k.y - parent.y, k.x - parent.x))))
-      : 1;
-    if (score > bestScore + 1e-9) { best = a; bestScore = score; }
-  }
-  return addNode(text, parent.x + CHILD_DIST * Math.cos(best), parent.y + CHILD_DIST * Math.sin(best), parent.id);
-}
-
-let toastTimer = null;
-function toast(msg) {
-  const el = document.getElementById("toast");
-  el.textContent = msg;
-  el.style.opacity = 1;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.style.opacity = 0; }, 1600);
-}
-
-// Three independent main nodes (no parent). Each grows its own sub nodes with its "+" button.
-const root = addNode("Main idea 1", -480, 0);
-addNode("Main idea 2", 0, 0);
-addNode("Main idea 3", 480, 0);
-let selected = root;
-
-/* ---------- SAVE / LOAD (JSON file) ---------- */
-let dirty = false;                       // true when the tree has changes that are not saved yet
-function setDirty(v) {
-  dirty = v;
-  document.getElementById("dirty").textContent = v ? "● unsaved changes" : "";
-}
-window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
-
-function saveTree() {
-  const r2 = v => Math.round(v * 100) / 100;
-  const data = {
-    format: "mindmap", version: 1,
-    nextId,
-    nodes: nodes.map(n => ({ id: n.id, text: n.text, x: r2(n.x), y: r2(n.y), parent: n.parent })),
-    view: { x: r2(view.x), y: r2(view.y), scale: view.scale, angle: view.angle },
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "mindmap.json";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  setDirty(false);
-  toast("Downloaded mindmap.json");
-}
-
-// Checks a loaded file before touching the current tree, so a bad file can never corrupt it.
-function parseTree(text) {
-  const data = JSON.parse(text);
-  if (!data || !Array.isArray(data.nodes) || data.nodes.length === 0) throw new Error("no nodes found");
-  const byId = new Map();
-  for (const n of data.nodes) {
-    if (!Number.isFinite(n.id) || typeof n.text !== "string" || !Number.isFinite(n.x) || !Number.isFinite(n.y))
-      throw new Error("invalid node");
-    if (byId.has(n.id)) throw new Error("duplicate id " + n.id);
-    byId.set(n.id, n);
-  }
-  let roots = 0;
-  const counts = new Map();
-  for (const n of data.nodes) {
-    if (n.parent === null || n.parent === undefined) { roots++; continue; }
-    if (!byId.has(n.parent)) throw new Error("node " + n.id + " has an unknown parent");
-    const c = (counts.get(n.parent) || 0) + 1;
-    if (c > MAX_CHILDREN) throw new Error("a node has more than " + MAX_CHILDREN + " sub nodes");
-    counts.set(n.parent, c);
-  }
-  if (roots < 1) throw new Error("no main node found");
-  for (const n of data.nodes) {          // every node must lead up to the main node (no cycles)
-    let cur = n, steps = 0;
-    while (cur.parent !== null && cur.parent !== undefined) {
-      cur = byId.get(cur.parent);
-      if (++steps > data.nodes.length) throw new Error("cycle in the tree");
-    }
-  }
-  return data;
-}
-
-function applyTree(data) {
-  nodes.length = 0;
-  for (const n of data.nodes) nodes.push({ id: n.id, text: n.text, x: n.x, y: n.y, parent: n.parent ?? null, w: 0, h: 0 });
-  nextId = Math.max(Number.isFinite(data.nextId) ? data.nextId : 0, Math.max(...nodes.map(n => n.id)) + 1);
-  selected = null;
-  const v = data.view;
-  if (v && [v.x, v.y, v.scale, v.angle].every(Number.isFinite) && v.scale >= 0.1 && v.scale <= 5) {
-    view.x = v.x; view.y = v.y; view.scale = v.scale; view.angle = v.angle;
-  } else {
-    actions.reset();
-  }
-  setDirty(false);
-}
-
-const fileInput = document.getElementById("fileInput");
-document.getElementById("saveBtn").addEventListener("click", saveTree);
-document.getElementById("openBtn").addEventListener("click", () => {
-  if (dirty && !confirm("You have unsaved changes. Open another file anyway?")) return;
-  fileInput.click();
-});
-fileInput.addEventListener("change", async () => {
-  const file = fileInput.files[0];
-  fileInput.value = "";                  // allows re-opening the same file later
-  if (!file) return;
-  try { applyTree(parseTree(await file.text())); toast("Opened " + file.name); }
-  catch (err) { toast("Could not open file: " + err.message); }
-});
-window.addEventListener("keydown", e => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveTree(); }
-});
-
-/* ---------- 2. VIEW + ACTIONS (the API the camera will call later) ---------- */
-// screen = view.pos + scale * Rot(angle) * world
-const view = { x: 0, y: 0, scale: 1, angle: 0 };
-
-function toScreen(wx, wy) {
-  const c = Math.cos(view.angle), s = Math.sin(view.angle);
-  return { x: view.x + view.scale * (c * wx - s * wy),
-           y: view.y + view.scale * (s * wx + c * wy) };
-}
-function toWorld(sx, sy) {
-  const c = Math.cos(view.angle), s = Math.sin(view.angle);
-  const dx = sx - view.x, dy = sy - view.y;
-  return { x: ( c * dx + s * dy) / view.scale,
-           y: (-s * dx + c * dy) / view.scale };
-}
-// Re-anchor so that world point `w` stays under screen point (sx, sy)
-function anchor(w, sx, sy) {
-  const p = toScreen(w.x, w.y);
-  view.x += sx - p.x;
-  view.y += sy - p.y;
+  return { x0, y0, x1, y1 };
 }
 
 const actions = {
   pan(dx, dy) { view.x += dx; view.y += dy; },
-  zoom(factor, sx, sy) {
-    const w = toWorld(sx, sy);
-    view.scale = Math.min(5, Math.max(0.1, view.scale * factor));
-    anchor(w, sx, sy);
+  zoom(factor, sx, sy) {                          // keeps the point under (sx, sy) fixed
+    const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, view.scale * factor));
+    const wx = (sx - view.x) / view.scale, wy = (sy - view.y) / view.scale;
+    view.scale = s;
+    view.x = sx - wx * s;
+    view.y = sy - wy * s;
   },
-  rotate(dAngle, sx, sy) {
-    const w = toWorld(sx, sy);
-    view.angle += dAngle;
-    anchor(w, sx, sy);
+  fit() {                                         // fit the whole map on screen, centred in the free area
+    const b = bounds();
+    const mapW = b.x1 - b.x0, mapH = b.y1 - b.y0;
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    const pad = IS_MOBILE ? 10 : 40;
+    // If the topbar/heading overlaps the top of the canvas (instead of sitting above it), keep the map below them.
+    const canvasTop = canvas.getBoundingClientRect().top;
+    const inset = Math.max(0, ...["nav", ".container"].map(sel => {
+      const el = document.querySelector(sel);
+      return el ? el.getBoundingClientRect().bottom - canvasTop : 0;
+    }));
+    const top = pad + inset;
+    // Candidate free areas as [left, top, right, bottom] in canvas pixels.
+    let regions;
+    if (IS_MOBILE) {
+      regions = [[pad, top, cw - pad, ch - 10]];                    // no camera panel on mobile
+    } else {
+      // The camera panel sits in the bottom-right corner. Use the area beside it (full height) or above it
+      // (full width), whichever gives the bigger map.
+      const cam = document.getElementById("cam"), camBox = document.getElementById("camBox");
+      const previewH = camBox.style.display === "block" ? 0 : (cam.clientWidth - 16) * 3 / 4 + 6;  // preview appears with the camera
+      const panelW = cam.offsetWidth + 20;                          // panel + its 10px offset + a 10px gap
+      const panelH = cam.offsetHeight + previewH + 20;
+      regions = [[pad, top, cw - panelW, ch - 10], [pad, top, cw - pad, ch - panelH]];
+    }
+    const fitIn = ([l, t, r, bt]) => Math.min((r - l) / mapW, (bt - t) / mapH);
+    const region = regions.reduce((best, r) => (fitIn(r) > fitIn(best) ? r : best));
+    const SHRINK = IS_MOBILE ? 1 : 0.9;            // desktop: a little air around the map
+    const s = Math.max(Math.min(fitIn(region), 1.25), 0.05) * SHRINK;
+    view.scale = s;
+    view.x = (region[0] + region[2]) / 2 - s * (b.x0 + b.x1) / 2;   // centred in the region, both ways
+    view.y = (region[1] + region[3]) / 2 - s * (b.y0 + b.y1) / 2;
   },
-  reset() { view.x = canvas.clientWidth / 2; view.y = canvas.clientHeight / 2; view.scale = 1; view.angle = 0; }
 };
-window.actions = actions;   // lets the hand-tracking module script call the same actions as the mouse
+window.actions = actions;                         // used by the camera script below
 
 /* ---------- 3. RENDERING ---------- */
-const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
-
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = canvas.clientWidth * dpr;
   canvas.height = canvas.clientHeight * dpr;
 }
-window.addEventListener("resize", resize);
+// Your topbar and heading sit above the canvas, so make the canvas exactly as tall as the space left below them.
+// Otherwise its bottom part would be cut off and the fit would misjudge the available height.
+function layoutCanvas() {
+  const top = Math.max(0, canvas.getBoundingClientRect().top);
+  canvas.style.height = Math.max(100, window.innerHeight - top) + "px";
+  resize();
+}
+window.addEventListener("resize", () => { layoutCanvas(); if (IS_MOBILE) actions.fit(); });
 
 function draw() {
+  updateHover();
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  ctx.transform(view.scale, 0, 0, view.scale, view.x, view.y);   // everything below is in world coordinates
 
-  // apply the view transform: everything below is in world coordinates
-  const c = Math.cos(view.angle) * view.scale, s = Math.sin(view.angle) * view.scale;
-  ctx.transform(c, s, -s, c, view.x, view.y);
-
-  ctx.font = "16px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // links
+  // links (drawn first, so the nodes cover their ends)
   ctx.strokeStyle = "#999";
   ctx.lineWidth = 2;
   for (const n of nodes) {
-    const p = nodes.find(m => m.id === n.parent);
+    const p = byId.get(n.parent);
     if (!p) continue;
     ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(n.x, n.y); ctx.stroke();
   }
-  // nodes
-  for (const n of nodes) {
-    n.w = ctx.measureText(n.text).width + 24;
-    n.h = 34;
-    ctx.fillStyle = n === selected ? "#dbeafe" : "#fff";
-    ctx.strokeStyle = n === selected ? "#2563eb" : "#555";
-    ctx.beginPath();
-    ctx.roundRect(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h, 8);
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#111";
-    ctx.fillText(n.text, n.x, n.y);
 
-    // "+" button (greyed out once the node has MAX_CHILDREN sub nodes)
-    const full = childrenOf(n).length >= MAX_CHILDREN;
-    const b = plusPos(n);
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, PLUS_R, 0, 2 * Math.PI);
-    ctx.fillStyle = full ? "#d1d5db" : "#2563eb";
-    ctx.fill();
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(b.x - 5, b.y); ctx.lineTo(b.x + 5, b.y);
-    ctx.moveTo(b.x, b.y - 5); ctx.lineTo(b.x, b.y + 5);
-    ctx.stroke();
+  // circles
+  for (const n of nodes) {
+    if (n.parent === null) continue;
+    const hot = n === hovered;
+    ctx.fillStyle = hot ? "#dbeafe" : "#fff";
+    ctx.strokeStyle = hot ? "#2563eb" : "#555";
+    ctx.lineWidth = hot ? 3 : 2;
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
   }
+
+  // main node
+  const m = nodes[0];
+  ctx.fillStyle = "#dbeafe";
+  ctx.strokeStyle = "#2563eb";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(m.x - m.w / 2, m.y - m.h / 2, m.w, m.h, 10); ctx.fill(); ctx.stroke();
+  ctx.font = MAIN_FONT;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#111";
+  ctx.fillText(m.title, m.x, m.y);
+
   requestAnimationFrame(draw);
 }
 
-/* ---------- 4. MOUSE INPUT (calls the same actions) ---------- */
-function nodeAt(wx, wy) {
-  for (let i = nodes.length - 1; i >= 0; i--) {
-    const n = nodes[i];
-    if (Math.abs(wx - n.x) <= n.w / 2 && Math.abs(wy - n.y) <= n.h / 2) return n;
-  }
-  return null;
-}
-function mousePos(e) {
-  const r = canvas.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-}
-
-let drag = null; // {type: "pan"|"node", node?, last:{x,y}}
-
-function plusAt(wx, wy) {
-  for (let i = nodes.length - 1; i >= 0; i--) {
-    const b = plusPos(nodes[i]);
-    if (Math.hypot(wx - b.x, wy - b.y) <= PLUS_R + 2) return nodes[i];
-  }
-  return null;
-}
-
-canvas.addEventListener("mousedown", e => {
-  const m = mousePos(e), w = toWorld(m.x, m.y);
-  const plusOwner = plusAt(w.x, w.y);
-  if (plusOwner) {                                   // click on a "+": add a sub node, no dragging
-    const child = addChild(plusOwner);
-    if (child) { selected = child; setDirty(true); }
-    return;
-  }
-  const hit = nodeAt(w.x, w.y);
-  if (hit) { selected = hit; drag = { type: "node", node: hit, single: e.altKey }; }
-  else     { selected = null;  drag = { type: "pan" }; }
-  drag.last = m;
-});
+/* ---------- 4. MOUSE FALLBACK (zoom and pan only; there is no way to touch the nodes) ---------- */
+let panning = null;
+const mousePos = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+canvas.addEventListener("mousedown", e => { panning = mousePos(e); });
 window.addEventListener("mousemove", e => {
-  if (!drag) return;
+  if (!panning) return;
   const m = mousePos(e);
-  if (drag.type === "pan") {
-    actions.pan(m.x - drag.last.x, m.y - drag.last.y);
-  } else {
-    const a = toWorld(drag.last.x, drag.last.y), b = toWorld(m.x, m.y);
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const moving = drag.single ? [drag.node] : [drag.node, ...descendantsOf(drag.node)];
-    for (const n of moving) { n.x += dx; n.y += dy; }
-    if (dx || dy) drag.moved = true;
-  }
-  drag.last = m;
+  actions.pan(m.x - panning.x, m.y - panning.y);
+  panning = m;
 });
-window.addEventListener("mouseup", () => {
-  if (drag && drag.moved) setDirty(true);
-  drag = null;
-});
-
+window.addEventListener("mouseup", () => { panning = null; });
 canvas.addEventListener("wheel", e => {
   e.preventDefault();
   const m = mousePos(e);
-  if (e.shiftKey) actions.rotate(-e.deltaY * 0.002, m.x, m.y);
-  else            actions.zoom(Math.exp(-e.deltaY * 0.001), m.x, m.y);
+  actions.zoom(Math.exp(-e.deltaY * 0.001), m.x, m.y);
 }, { passive: false });
+window.addEventListener("keydown", e => { if (e.key === "r" || e.key === "R") actions.fit(); });
 
-canvas.addEventListener("dblclick", e => {
-  const m = mousePos(e), w = toWorld(m.x, m.y), hit = nodeAt(w.x, w.y);
-  if (hit) {
-    const t = prompt("Node text:", hit.text);
-    if (t !== null && t.trim() && t.trim() !== hit.text) { hit.text = t.trim(); setDirty(true); }
-  }
-});
+/* ---------- 4b. HOVER: a circle reveals its content ---------- */
+const tip = document.getElementById("tip");
+const mouse = { x: 0, y: 0, inside: false };
+let hovered = null;
+canvas.addEventListener("mousemove", e => { const m = mousePos(e); mouse.x = m.x; mouse.y = m.y; mouse.inside = true; });
+canvas.addEventListener("mouseleave", () => { mouse.inside = false; });
+// Touch screens have no hover: tapping a circle reveals its content, tapping elsewhere hides it.
+canvas.addEventListener("touchstart", e => {
+  const t = e.touches[0], r = canvas.getBoundingClientRect();
+  mouse.x = t.clientX - r.left; mouse.y = t.clientY - r.top; mouse.inside = true;
+}, { passive: true });
 
-window.addEventListener("keydown", e => {
-  if (e.key === "r" || e.key === "R") actions.reset();
-  if (e.key === "Delete" && selected && selected.parent !== null) {   // the main node (no parent) can't be deleted
-    const doomed = new Set([selected.id]);
-    let grew = true;
-    while (grew) {                       // collect descendants
-      grew = false;
-      for (const n of nodes)
-        if (n.parent && doomed.has(n.parent) && !doomed.has(n.id)) { doomed.add(n.id); grew = true; }
+// Runs every frame, so the hover stays correct even when the map moves under a still mouse (camera zoom or pan).
+function updateHover() {
+  let hit = null;
+  if (mouse.inside && !panning) {
+    const wx = (mouse.x - view.x) / view.scale, wy = (mouse.y - view.y) / view.scale;
+    for (let i = nodes.length - 1; i >= 0 && !hit; i--) {
+      const n = nodes[i];
+      if (n.parent !== null && Math.hypot(wx - n.x, wy - n.y) <= n.r) hit = n;
     }
-    for (let i = nodes.length - 1; i >= 0; i--) if (doomed.has(nodes[i].id)) nodes.splice(i, 1);
-    selected = null;
-    setDirty(true);
   }
-});
+  hovered = hit;
+  if (!hit) { tip.style.display = "none"; tip.dataset.node = ""; return; }
 
-/* ---------- 5. FUTURE: hand tracking plugs in here ----------
-   A tracker would just call the same functions, e.g. every frame:
-     actions.zoom(newPinchDistance / oldPinchDistance, midX, midY);
-     actions.rotate(newHandAngle - oldHandAngle, midX, midY);
-     actions.pan(dx, dy);
-------------------------------------------------------------- */
+  if (tip.dataset.node !== String(hit.id)) {       // rebuild the content only when the hovered circle changes
+    const parts = [];
+    const title = document.createElement("strong");
+    title.textContent = hit.title;                 // textContent: everything is shown as plain text
+    parts.push(title);
+    if (hit.items.length) {
+      const ul = document.createElement("ul");
+      for (const text of hit.items) {
+        const li = document.createElement("li");
+        li.textContent = text;
+        ul.appendChild(li);
+      }
+      parts.push(ul);
+    }
+    tip.replaceChildren(...parts);
+    tip.dataset.node = String(hit.id);
+  }
+  tip.style.display = "block";
 
-resize();
-actions.reset();
+  // Place it just under the circle; flip above it if there is no room; keep it inside the window.
+  const r = canvas.getBoundingClientRect();         // the canvas is not at the very top of the page (topbar above it)
+  const left = r.left + view.x + view.scale * (hit.x - hit.r);
+  const below = r.top + view.y + view.scale * (hit.y + hit.r) + 6;
+  const above = r.top + view.y + view.scale * (hit.y - hit.r) - 6 - tip.offsetHeight;
+  const top = below + tip.offsetHeight > window.innerHeight - 8 ? above : below;
+  tip.style.left = Math.max(8, Math.min(left, window.innerWidth - tip.offsetWidth - 8)) + "px";
+  tip.style.top = Math.max(8, top) + "px";
+}
+
+layoutRing();
+layoutCanvas();
+actions.fit();
 draw();
 </script>
 
 <script type="module">
-/* ---------- 6. HAND LANDMARKER (step 1: load, see the hands, no gestures yet) ---------- */
+/* ---------- 5. HAND LANDMARKER: camera pinch controls the zoom ---------- */
 const MP_VERSION = "latest";   // once it works, pin an exact version (e.g. "0.10.21") for reproducibility
 const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
-// Gesture tuning. Control is rate-based ("joystick"): a neutral pose does nothing, and the further
-// you go past a threshold, the faster the map zooms/rotates. Tune these using the on-screen readout.
+// Rate-based ("joystick") control: the relaxed pose does nothing; the further you go past a
+// threshold, the faster the map zooms. Same values as the editor; tune them with the on-screen readout.
+// IS_MOBILE comes from the first script: on phones and tablets the camera is disabled.
 const G = {
-  rotation: false,                   // set to true to re-enable wrist-tilt rotation
-  pinchLow: 0.30,                    // smoothed pinch ratio below this  -> zoom out
-  pinchHigh: 0.90,                   // above this                        -> zoom in
-  zoomGain: 3.5,                     // ln(zoom) per second per unit of ratio beyond the threshold
-  tiltDead: 15 * Math.PI / 180,      // wrist tilt dead zone (each side of upright)
-  tiltMax: 60 * Math.PI / 180,       // tilt beyond this counts as this
-  rotGain: 2.0,                      // rad/s of map rotation per rad of tilt beyond the dead zone
-  smooth: 0.35,                      // exponential smoothing factor (0 to 1; higher = more responsive, more jitter)
-  engageFrames: 6,                   // hand must be seen this many frames in a row before it controls anything
+  pinchLow: 0.30,        // smoothed pinch ratio below this  -> zoom out
+  pinchHigh: 0.90,       // above this                        -> zoom in
+  zoomGain: 3.5,         // ln(zoom) per second per unit of ratio beyond the threshold
+  smooth: 0.35,          // exponential smoothing factor (higher = more responsive, more jitter)
+  engageFrames: 6,       // hand must be seen this many frames in a row before it controls anything
+
+  // Moving the map with the hand position. Also rate-based: keep your hand inside the dashed box
+  // (the centre of the camera view) for no movement; the further outside it, the faster the map moves.
+  pan: true,             // set to false to switch hand-position movement off
+  panDir: 1,             //  1: the view moves toward your hand (hand right -> you see more of the right)
+                         // -1: the opposite (the map follows your hand like a grabbed sheet)
+  panDead: 0.18,         // half-size of the neutral box, as a fraction of the camera frame (0.18 = central 36%)
+  panGain: 700,          // screen pixels per second per unit of frame fraction beyond the box (max about 220 px/s)
+  posSmooth: 0.25,       // smoothing of the hand position (lower = steadier, slower)
 };
 
 const btn = document.getElementById("camBtn");
@@ -423,6 +349,7 @@ const octx = overlay.getContext("2d");
 const setStatus = t => { document.getElementById("camStatus").textContent = t; };
 
 btn.addEventListener("click", async () => {
+  if (IS_MOBILE) return;                         // the camera is disabled on mobile
   btn.disabled = true;
   try {
     setStatus("loading model…");
@@ -443,6 +370,7 @@ btn.addEventListener("click", async () => {
     await video.play();
     overlay.width = video.videoWidth;
     overlay.height = video.videoHeight;
+    box.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;   // phones often give portrait video
     box.style.display = "block";
     btn.style.display = "none";
 
@@ -451,7 +379,7 @@ btn.addEventListener("click", async () => {
     const mapCanvas = document.getElementById("c");
     const gestOn = document.getElementById("gestOn");
     let lastTime = -1, lastT = performance.now();
-    let handFrames = 0, smPinch = 0, smTilt = 0;
+    let handFrames = 0, smPinch = 0, smX = 0.5, smY = 0.5;
 
     function loop() {
       if (video.currentTime !== lastTime) {          // only process genuinely new frames
@@ -461,12 +389,20 @@ btn.addEventListener("click", async () => {
         lastT = now;
         const result = landmarker.detectForVideo(video, now);
         octx.clearRect(0, 0, W, H);
+        if (G.pan) {                                 // dashed neutral box: hand inside = no movement
+          octx.save();
+          octx.strokeStyle = "#fff";
+          octx.lineWidth = 2;
+          octx.setLineDash([8, 8]);
+          octx.strokeRect((0.5 - G.panDead) * W, (0.5 - G.panDead) * H, 2 * G.panDead * W, 2 * G.panDead * H);
+          octx.restore();
+        }
 
         if (!result.landmarks.length) {
           handFrames = 0;
           setStatus("no hand detected");
         } else {
-          result.landmarks.forEach((lm, i) => {      // draw all hands; only the first one controls the map
+          result.landmarks.forEach((lm, i) => {      // draw all hands; only the first one controls the zoom
             utils.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: i === 0 ? "#2563eb" : "#9ca3af", lineWidth: 3 });
             utils.drawLandmarks(lm, { color: "#fff", fillColor: i === 0 ? "#ef4444" : "#9ca3af", radius: 3 });
           });
@@ -475,32 +411,48 @@ btn.addEventListener("click", async () => {
 
           // Pinch: thumb tip (4) to index tip (8), divided by hand size (wrist 0 to middle knuckle 9)
           const pinch = d(4, 8) / d(0, 9);
-          // Tilt: angle of the wrist-to-middle-knuckle axis from vertical. The sign is flipped because the
-          // camera image is not mirrored: tilting your hand clockwise (as you see it) gives a positive tilt.
-          const tiltRaw = Math.atan2(-(lm[9].x - lm[0].x) * W, -(lm[9].y - lm[0].y) * H);
-          const tilt = Math.abs(tiltRaw) > 1.75 ? 0 : Math.max(-G.tiltMax, Math.min(G.tiltMax, tiltRaw)); // ignore upside-down poses
-
           handFrames++;
-          if (handFrames === 1) { smPinch = pinch; smTilt = tilt; }
-          else { smPinch += G.smooth * (pinch - smPinch); smTilt += G.smooth * (tilt - smTilt); }
+          smPinch = handFrames === 1 ? pinch : smPinch + G.smooth * (pinch - smPinch);
 
-          // Distance past the thresholds (0 inside the neutral zone)
-          let zExcess = 0, rExcess = 0;
-          if (smPinch < G.pinchLow) zExcess = smPinch - G.pinchLow;        // negative: zoom out
-          else if (smPinch > G.pinchHigh) zExcess = smPinch - G.pinchHigh; // positive: zoom in
-          if (G.rotation && Math.abs(smTilt) > G.tiltDead) rExcess = Math.sign(smTilt) * (Math.abs(smTilt) - G.tiltDead);
-
-          const live = gestOn.checked && handFrames >= G.engageFrames;
-          if (live) {
-            const cx = mapCanvas.clientWidth / 2, cy = mapCanvas.clientHeight / 2;  // act around the screen centre
-            if (zExcess) window.actions.zoom(Math.exp(G.zoomGain * zExcess * dt), cx, cy);
-            if (rExcess) window.actions.rotate(G.rotGain * rExcess * dt, cx, cy);
+          // Palm centre = average of the wrist and the four knuckles (0, 5, 9, 13, 17). It barely moves when
+          // the fingers open or close, so zooming doesn't disturb it. x is mirrored: right = your right.
+          const palmX = 1 - (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
+          const palmY = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
+          if (handFrames === 1) { smX = palmX; smY = palmY; }
+          else { smX += G.posSmooth * (palmX - smX); smY += G.posSmooth * (palmY - smY); }
+          if (G.pan) {                               // palm marker (the overlay is mirrored by CSS, so use raw x)
+            octx.beginPath();
+            octx.arc((1 - smX) * W, smY * H, 9, 0, 2 * Math.PI);
+            octx.strokeStyle = "#facc15";
+            octx.lineWidth = 3;
+            octx.stroke();
           }
 
-          const deg = (smTilt * 180 / Math.PI).toFixed(0);
+          let zExcess = 0;                           // distance past the thresholds (0 in the neutral zone)
+          if (smPinch < G.pinchLow) zExcess = smPinch - G.pinchLow;        // negative: zoom out
+          else if (smPinch > G.pinchHigh) zExcess = smPinch - G.pinchHigh; // positive: zoom in
+
+          const live = gestOn.checked && handFrames >= G.engageFrames;
+          if (live && zExcess) {
+            // zoom around the screen centre
+            window.actions.zoom(Math.exp(G.zoomGain * zExcess * dt), mapCanvas.clientWidth / 2, mapCanvas.clientHeight / 2);
+          }
+
+          // Pan: distance of the palm beyond the neutral box (0 inside it), per axis
+          const dxN = smX - 0.5, dyN = smY - 0.5;
+          const ex = Math.abs(dxN) > G.panDead ? Math.sign(dxN) * (Math.abs(dxN) - G.panDead) : 0;
+          const ey = Math.abs(dyN) > G.panDead ? Math.sign(dyN) * (Math.abs(dyN) - G.panDead) : 0;
+          const vx = G.panDir * ex, vy = G.panDir * ey;      // direction the VIEW moves
+          if (live && G.pan && (ex || ey)) {
+            // the view moves toward the hand, so the content slides the opposite way
+            window.actions.pan(-G.panGain * vx * dt, -G.panGain * vy * dt);
+          }
+
+          const sgn = v => (v >= 0 ? "+" : "") + v.toFixed(2);
+          const arrows = (vx > 0 ? " →" : vx < 0 ? " ←" : "") + (vy > 0 ? " ↓" : vy < 0 ? " ↑" : "");
           setStatus(
             `pinch ${smPinch.toFixed(2)}${zExcess > 0 ? "  ▲ zoom in" : zExcess < 0 ? "  ▼ zoom out" : ""}\n` +
-            (G.rotation ? `tilt ${deg}°${rExcess > 0 ? "  ↻ rotating" : rExcess < 0 ? "  ↺ rotating" : ""}` : "rotation off") +
+            (G.pan ? `hand ${sgn(dxN)}, ${sgn(dyN)}${arrows}` : "movement off") +
             (live ? "" : "  (paused)")
           );
         }
