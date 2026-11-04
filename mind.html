@@ -30,16 +30,25 @@
   #tip ul { margin: 0; padding-left: 18px; }
   #tip li { margin: 2px 0; }
   #tip strong { display: block; margin-bottom: 4px; }
+  #search { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(440px, calc(100% - 24px)); z-index: 10; }
+  #q { box-sizing: border-box; width: 100%; padding: 10px 16px; font: 16px system-ui, sans-serif; color: #111; background: #fff;
+       border: 1px solid #cbd5e1; border-radius: 999px; box-shadow: 0 2px 8px #0001; outline: none; }
+  #q:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #2563eb33; }
+  #qstatus { margin-top: 4px; min-height: 14px; text-align: center; font-size: 12px; color: #666; }
   @media (max-width: 700px), (pointer: coarse) {
     #help { display: none; }   /* no help line on mobile: the map gets the whole screen */
   }
 </style>
 </head>
 <body>
+<div id="search">
+  <input id="q" type="search" placeholder="Search Wikipedia, then press Enter" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search Wikipedia">
+  <div id="qstatus" role="status"></div>
+</div>
 <canvas id="c"></canvas>
 <div id="tip"></div>
 
-<div id="help">view only · hover a circle for its content · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
+<div id="help">view only · search bar: Wikipedia title on the main node · hover a circle for its content · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
 
 <script>
 "use strict";
@@ -63,7 +72,7 @@ const RADIUS = 230;        // distance from the main node to the centre of each 
 const CIRCLE_R = 26;       // radius of the circles
 
 // id 0 = main node; ids 1..N = circles. Positions are set by layoutRing() below.
-const nodes = [{ id: 0, title: MAIN_TITLE, items: [], x: 0, y: 0, parent: null, w: 0, h: 40 }];
+const nodes = [{ id: 0, title: MAIN_TITLE, lines: [], items: [], x: 0, y: 0, parent: null, w: 0, h: 40 }];
 SUBNODES.forEach((sub, i) => nodes.push({
   id: i + 1, title: sub.title, items: sub.items || [], x: 0, y: 0, parent: 0, r: CIRCLE_R, w: 2 * CIRCLE_R, h: 2 * CIRCLE_R,
 }));
@@ -78,19 +87,49 @@ const MIN_SCALE = 0.1, MAX_SCALE = 5;
 const IS_MOBILE = window.matchMedia("(max-width: 700px), (pointer: coarse)").matches;
 
 const MAIN_FONT = "bold 18px system-ui, sans-serif";
-function measure() {                              // only the main node has a text-dependent size
+const MAIN_MAX_W = 260, MAIN_MAX_LINES = 3, MAIN_LINE_H = 22;   // long titles wrap onto up to 3 lines
+
+// Cuts a line with "…" until it fits in maxW.
+function ellipsize(text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+  return t.trimEnd() + "…";
+}
+function wrapTitle(text, maxW) {
   ctx.font = MAIN_FONT;
-  nodes[0].w = ctx.measureText(nodes[0].title).width + 24;
+  const lines = [];
+  let cur = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const t = cur ? cur + " " + word : word;
+    if (!cur || ctx.measureText(t).width <= maxW) cur = t;
+    else { lines.push(cur); cur = word; }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > MAIN_MAX_LINES) {            // too long: keep 3 lines and end the last one with "…"
+    lines.length = MAIN_MAX_LINES;
+    lines[MAIN_MAX_LINES - 1] += "…";
+  }
+  return lines.map(l => ellipsize(l, maxW));
+}
+
+function measure() {                              // only the main node has a text-dependent size
+  const m = nodes[0];
+  m.lines = wrapTitle(m.title, MAIN_MAX_W);
+  ctx.font = MAIN_FONT;
+  m.w = Math.max(...m.lines.map(l => ctx.measureText(l).width)) + 24;
+  m.h = m.lines.length * MAIN_LINE_H + 18;
 }
 
 // Equal spacing: circle i sits at angle -90° + i * 360° / N. The ring is made wider if the main node's label
 // is long, or if there are so many circles that neighbours would touch.
+let ringR = 0;                                    // current radius of the ring
 function layoutRing() {
   measure();
   const n = nodes.length - 1;
-  const R = Math.max(
+  const R = ringR = Math.max(
     RADIUS,
-    nodes[0].w / 2 + CIRCLE_R + 30,
+    Math.hypot(nodes[0].w / 2, nodes[0].h / 2) + CIRCLE_R + 30,
     n > 1 ? (CIRCLE_R + 6) / Math.sin(Math.PI / n) : 0
   );
   nodes.slice(1).forEach((node, i) => {
@@ -125,11 +164,12 @@ const actions = {
     const mapW = b.x1 - b.x0, mapH = b.y1 - b.y0;
     const cw = canvas.clientWidth, ch = canvas.clientHeight;
     const pad = IS_MOBILE ? 10 : 40;
+    const top = 76;                                // room for the search bar (and its message) at the top
     const SHRINK = IS_MOBILE ? 1 : 0.9;            // desktop: a little air around the map
-    const s = Math.max(Math.min((cw - 2 * pad) / mapW, (ch - 2 * pad) / mapH, 1.25), 0.05) * SHRINK;
+    const s = Math.max(Math.min((cw - 2 * pad) / mapW, (ch - top - pad) / mapH, 1.25), 0.05) * SHRINK;
     view.scale = s;
     view.x = cw / 2 - s * (b.x0 + b.x1) / 2;
-    view.y = ch / 2 - s * (b.y0 + b.y1) / 2;
+    view.y = (top + ch - pad) / 2 - s * (b.y0 + b.y1) / 2;   // centred in the area below the search bar
   },
 };
 
@@ -184,7 +224,7 @@ function draw() {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#111";
-  ctx.fillText(m.title, m.x, m.y);
+  m.lines.forEach((line, i) => ctx.fillText(line, m.x, m.y + (i - (m.lines.length - 1) / 2) * MAIN_LINE_H));
 
   requestAnimationFrame(draw);
 }
@@ -205,7 +245,10 @@ canvas.addEventListener("wheel", e => {
   const m = mousePos(e);
   actions.zoom(Math.exp(-e.deltaY * 0.001), m.x, m.y);
 }, { passive: false });
-window.addEventListener("keydown", e => { if (e.key === "r" || e.key === "R") actions.fit(); });
+window.addEventListener("keydown", e => {
+  if (e.target instanceof HTMLInputElement) return;            // typing in the search bar
+  if (e.key === "r" || e.key === "R") actions.fit();
+});
 
 /* ---------- 4b. HOVER: a circle reveals its content ---------- */
 const tip = document.getElementById("tip");
@@ -260,6 +303,52 @@ function updateHover() {
   tip.style.left = Math.max(8, Math.min(left, window.innerWidth - tip.offsetWidth - 8)) + "px";
   tip.style.top = Math.max(8, top) + "px";
 }
+
+/* ---------- 5. WIKIPEDIA SEARCH: Enter puts the title of the matching page on the main node ---------- */
+const WIKI_LANG = "en";                           // "fr" for the French Wikipedia, and so on
+const qInput = document.getElementById("q");
+const qStatus = document.getElementById("qstatus");
+let searchAbort = null;
+
+function setMainTitle(title) {
+  nodes[0].title = title;
+  const before = ringR;
+  layoutRing();                                   // the label size changed, so re-space the circles
+  if (Math.abs(ringR - before) > 0.5) actions.fit();   // refit only if the ring had to grow or shrink
+}
+
+async function wikiApi(params, signal) {
+  const query = new URLSearchParams({ format: "json", origin: "*", ...params });   // origin=* allows calls from any website
+  const res = await fetch(`https://${WIKI_LANG}.wikipedia.org/w/api.php?${query}`, { signal });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+// 1) the exact page (first letter case-insensitive, redirects followed); 2) otherwise the best full-text match.
+async function findWikipediaTitle(query, signal) {
+  const exact = await wikiApi({ action: "query", titles: query, redirects: "1" }, signal);
+  const page = exact.query && Object.values(exact.query.pages || {})[0];
+  if (page && page.missing === undefined && page.invalid === undefined) return page.title;
+  const found = await wikiApi({ action: "query", list: "search", srsearch: query, srlimit: "1" }, signal);
+  const hit = found.query && found.query.search && found.query.search[0];
+  return hit ? hit.title : null;
+}
+
+qInput.addEventListener("keydown", async e => {
+  if (e.key !== "Enter" || e.isComposing) return;
+  const query = qInput.value.trim();
+  if (!query) return;
+  if (searchAbort) searchAbort.abort();           // a newer search replaces an older one still running
+  searchAbort = new AbortController();
+  qStatus.textContent = "Searching…";
+  try {
+    const title = await findWikipediaTitle(query, searchAbort.signal);
+    if (title) { setMainTitle(title); qStatus.textContent = ""; }
+    else qStatus.textContent = `No Wikipedia page found for “${query}”`;
+  } catch (err) {
+    if (err.name !== "AbortError") qStatus.textContent = "Search failed: check your connection and try again";
+  }
+});
 
 layoutRing();
 layoutCanvas();
