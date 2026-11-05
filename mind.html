@@ -31,6 +31,7 @@
   #tip li { margin: 2px 0; }
   #tip strong { display: block; margin-bottom: 4px; }
   #tip .hint { margin-top: 6px; font-size: 11px; color: #64748b; }
+  #tip .kind { margin: -2px 0 4px; font-size: 11px; color: #64748b; }
   #search { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(440px, calc(100% - 24px)); z-index: 10; }
   #q { box-sizing: border-box; width: 100%; padding: 10px 16px; font: 16px system-ui, sans-serif; color: #111; background: #fff;
        border: 1px solid #cbd5e1; border-radius: 999px; box-shadow: 0 2px 8px #0001; outline: none; }
@@ -49,7 +50,7 @@
 <canvas id="c"></canvas>
 <div id="tip"></div>
 
-<div id="help">view only · search bar: page title on the main node, its 8 most frequent words around it · hover a circle for its content, click it to make it the main node · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
+<div id="help">view only · search bar: page title on the main node, its first 8 section headers around it (then frequent words) · hover a circle for its content, click it to make it the main node · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
 
 <script>
 "use strict";
@@ -213,7 +214,9 @@ function draw() {
     ctx.fillStyle = hot ? "#dbeafe" : "#fff";
     ctx.strokeStyle = hot ? "#2563eb" : "#555";
     ctx.lineWidth = hot ? 3 : 2;
+    ctx.setLineDash(n.kind === "Frequent word" ? [5, 4] : []);      // section circles solid, word circles dashed
     ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // main node
@@ -274,8 +277,9 @@ canvas.addEventListener("click", e => {
   if (!hit || hit.placeholder) { armed = null; return; }
   if (Date.now() - lastTouch < 1000 && armed !== hit.id) { armed = hit.id; return; }   // touch: the first tap only reveals
   armed = null;
-  qInput.value = hit.title;
-  search(hit.title);
+  const query = hit.isHeader && HEADER_CLICK_IN_CONTEXT ? `${nodes[0].title} ${hit.title}` : hit.title;
+  qInput.value = query;
+  search(query);
 });
 
 // The circle under a canvas pixel, or null.
@@ -299,6 +303,12 @@ function updateHover() {
     const title = document.createElement("strong");
     title.textContent = hit.title;                 // textContent: everything is shown as plain text
     parts.push(title);
+    if (hit.kind) {
+      const kind = document.createElement("div");
+      kind.className = "kind";
+      kind.textContent = hit.kind;
+      parts.push(kind);
+    }
     if (hit.items.length) {
       const ul = document.createElement("ul");
       for (const text of hit.items) {
@@ -352,6 +362,16 @@ const STOPWORDS = {
 };
 const BOILERPLATE = "retrieved archived isbn doi https http www pdf";   // leftovers of references and links
 
+// Circles show the page's first TOPIC_COUNT section headers; if it has fewer, frequent words fill the rest.
+const HEADER_MAX_LEVEL = 2;                       // 2 = main sections only ("== Title =="); 3 also takes subsections, and so on
+const HEADER_CLICK_IN_CONTEXT = false;            // false: clicking "History" looks up "History"; true: looks up "<main node> History"
+// Headers that make poor topics (links, references...). Lower-case. Empty a list to keep them.
+const SKIP_HEADERS = {
+  en: ["see also", "references", "external links", "notes", "further reading", "bibliography", "sources", "citations",
+       "footnotes", "notes and references", "references and notes", "works cited"],
+  fr: ["voir aussi", "références", "notes et références", "liens externes", "bibliographie", "notes", "sources", "annexes"],
+};
+
 const qInput = document.getElementById("q");
 const qStatus = document.getElementById("qstatus");
 let searchAbort = null;
@@ -373,9 +393,9 @@ async function findWikipediaTitle(query, signal) {
   return hit ? hit.title : null;
 }
 
-// The whole page as plain text (no HTML, no infoboxes).
+// The whole page as plain text (no HTML, no infoboxes); section titles come as "== Title ==" lines.
 async function fetchPlainText(title, signal) {
-  const data = await wikiApi({ action: "query", prop: "extracts", explaintext: "1", exsectionformat: "plain",
+  const data = await wikiApi({ action: "query", prop: "extracts", explaintext: "1", exsectionformat: "wiki",
                                titles: title, redirects: "1" }, signal);
   const page = data.query && Object.values(data.query.pages || {})[0];
   return (page && page.extract) || "";
@@ -387,18 +407,18 @@ function tokenize(text) {
 }
 
 // The TOPIC_COUNT most frequent words of the text, each with its count and an example sentence.
-function topWords(text, title) {
+function topWords(text, title, n = TOPIC_COUNT, avoid = new Set()) {
   const stop = new Set(((STOPWORDS[WIKI_LANG] || "") + " " + BOILERPLATE).split(/\s+/).filter(Boolean));
   const minLen = STOPWORDS[WIKI_LANG] ? 3 : 4;
   const skip = new Set(EXCLUDE_TITLE_WORDS ? tokenize(title) : []);
-  const keep = w => w.length >= minLen && !stop.has(w) && !skip.has(w);
+  const keep = w => w.length >= minLen && !stop.has(w) && !skip.has(w) && !avoid.has(w);
 
   const sentences = text.replace(/([.!?])\s+/g, "$1\n").split(/\n+/).map(t => t.trim()).filter(Boolean);
   const counts = new Map();
   for (const sentence of sentences)
     for (const w of tokenize(sentence)) if (keep(w)) counts.set(w, (counts.get(w) || 0) + 1);
 
-  const top = [...counts].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1)).slice(0, TOPIC_COUNT);
+  const top = [...counts].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1)).slice(0, n);
   const wanted = new Set(top.map(([word]) => word));
 
   // One pass to find an example sentence per word (a medium-length one if possible, else the first one).
@@ -417,8 +437,52 @@ function topWords(text, title) {
     const example = good.get(word) || fallback.get(word);
     const items = [`Appears ${count} time${count === 1 ? "" : "s"} on the page`];
     if (example) items.push(`“${clip(example)}”`);
-    return { title: word.charAt(0).toUpperCase() + word.slice(1), items };
+    return { title: word.charAt(0).toUpperCase() + word.slice(1), items, kind: "Frequent word" };
   });
+}
+
+// Splits the "== Title ==" text into blocks: the lead first (level 0), then one block per header.
+function parseSections(text) {
+  const blocks = [{ level: 0, title: "", lines: [] }];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^(={2,6})\s*(.*?)\s*\1\s*$/);
+    if (m) blocks.push({ level: m[1].length, title: m[2], lines: [] });
+    else if (line.trim()) blocks[blocks.length - 1].lines.push(line.trim());
+  }
+  blocks.forEach(b => { b.text = b.lines.join(" "); });
+  return blocks;
+}
+
+// A medium-length sentence from the text, cut to 160 characters.
+function excerptOf(text) {
+  const sentences = text.replace(/([.!?])\s+/g, "$1\n").split(/\n+/).map(t => t.trim()).filter(Boolean);
+  const pick = sentences.find(t => t.length >= 40) || sentences[0] || "";
+  return pick.length > 160 ? pick.slice(0, 157).trimEnd() + "…" : pick;
+}
+
+// The first TOPIC_COUNT section headers in page order (no duplicates, no "References" and the like).
+function topHeaders(blocks) {
+  const skip = new Set(SKIP_HEADERS[WIKI_LANG] || []);
+  const seen = new Set(), out = [];
+  blocks.forEach((b, i) => {
+    if (b.level < 2 || b.level > HEADER_MAX_LEVEL || !b.title) return;
+    const key = b.title.toLowerCase();
+    if (skip.has(key) || seen.has(key)) return;
+    seen.add(key);
+    let text = b.text;                              // the section's own text, else the first text inside its subsections
+    for (let j = i + 1; !text && j < blocks.length && blocks[j].level > b.level; j++) text = blocks[j].text;
+    out.push({ title: b.title, items: text ? [`“${excerptOf(text)}”`] : [], kind: "Section of the page", isHeader: true });
+  });
+  return out.slice(0, TOPIC_COUNT);
+}
+
+// Headers first (page order); if there are fewer than TOPIC_COUNT, the most frequent words fill the rest.
+function buildTopics(text, title) {
+  const headers = topHeaders(parseSections(text));
+  if (headers.length >= TOPIC_COUNT) return headers;
+  const avoid = new Set(headers.map(h => h.title.toLowerCase()));   // no word that is already a header
+  const body = text.split("\n").filter(line => !/^={2,6}.*={2,6}$/.test(line.trim())).join("\n");   // header lines are structure, not content
+  return headers.concat(topWords(body, title, TOPIC_COUNT - headers.length, avoid));
 }
 
 // Replaces the circles by new ones (same hover mechanism), re-spaces them equally, and fits the map.
@@ -426,7 +490,8 @@ function showTopic(title, topics) {
   nodes[0].title = title;
   nodes.length = 1;
   topics.forEach((t, i) => nodes.push({
-    id: i + 1, title: t.title, items: t.items, x: 0, y: 0, parent: 0, r: CIRCLE_R, w: 2 * CIRCLE_R, h: 2 * CIRCLE_R,
+    id: i + 1, title: t.title, items: t.items, kind: t.kind, isHeader: !!t.isHeader,
+    x: 0, y: 0, parent: 0, r: CIRCLE_R, w: 2 * CIRCLE_R, h: 2 * CIRCLE_R,
   }));
   byId.clear();
   nodes.forEach(n => byId.set(n.id, n));
@@ -448,7 +513,7 @@ async function search(query) {
     const title = await findWikipediaTitle(query, signal);
     if (!title) { qStatus.textContent = `No Wikipedia page found for “${query}”`; return; }
     qStatus.textContent = "Reading the page…";
-    const topics = topWords(await fetchPlainText(title, signal), title);
+    const topics = buildTopics(await fetchPlainText(title, signal), title);
     showTopic(title, topics);
     qStatus.textContent = topics.length ? "" : "This page has too little text to find topics";
   } catch (err) {
