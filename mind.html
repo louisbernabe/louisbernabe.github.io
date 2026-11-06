@@ -50,7 +50,7 @@
 <canvas id="c"></canvas>
 <div id="tip"></div>
 
-<div id="help">view only · search bar: page title on the main node, its first 8 section headers around it (then frequent words) · hover a circle for its content, click it to make it the main node · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
+<div id="help">view only · search bar: page title on the main node, its first 8 section headers around it (then word groups found with Leiden) · hover a circle for its content, click it to make it the main node · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
 
 <script>
 "use strict";
@@ -214,7 +214,7 @@ function draw() {
     ctx.fillStyle = hot ? "#dbeafe" : "#fff";
     ctx.strokeStyle = hot ? "#2563eb" : "#555";
     ctx.lineWidth = hot ? 3 : 2;
-    ctx.setLineDash(n.kind === "Frequent word" ? [5, 4] : []);      // section circles solid, word circles dashed
+    ctx.setLineDash(n.isHeader === false ? [5, 4] : []);        // section circles solid, word circles dashed
     ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -363,6 +363,11 @@ const STOPWORDS = {
 const BOILERPLATE = "retrieved archived isbn doi https http www pdf";   // leftovers of references and links
 
 // Circles show the page's first TOPIC_COUNT section headers; if it has fewer, frequent words fill the rest.
+// When headers don't fill all circles: groups of related words found by the Leiden algorithm (or plain frequent words).
+const USE_LEIDEN = true;                          // false: simply the most frequent words
+const CLUSTER_WORDS = 150;                        // how many of the most frequent words enter the word graph
+const CLUSTER_WINDOW = 5;                         // two words are linked when at most this many words apart in a sentence
+const CLUSTER_RESOLUTION = 1;                     // Leiden resolution: higher gives more, smaller groups
 const HEADER_MAX_LEVEL = 2;                       // 2 = main sections only ("== Title =="); 3 also takes subsections, and so on
 const HEADER_CLICK_IN_CONTEXT = false;            // false: clicking "History" looks up "History"; true: looks up "<main node> History"
 // Headers that make poor topics (links, references...). Lower-case. Empty a list to keep them.
@@ -401,27 +406,174 @@ async function fetchPlainText(title, signal) {
   return (page && page.extract) || "";
 }
 
+/* ---------- LEIDEN community detection ----------
+   Traag, Waltman & van Eck, "From Louvain to Leiden: guaranteeing well-connected communities" (2019),
+   with modularity as the quality function and a resolution parameter gamma (higher = more, smaller communities).
+   Repeats three phases on ever coarser graphs: fast local moving of nodes, REFINEMENT of each community into
+   well-connected sub-communities (what Louvain lacks), and aggregation based on the refined partition. */
+function mulberry32(seed) {                       // small seeded random generator: same input, same result
+  return function () {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffled(n, rng) {                       // random order of 0..n-1
+  const a = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+// Weighted undirected graph. self[i] = weight of the edges inside aggregate node i (counted once);
+// k[i] = strength of node i = sum of its edge weights + 2 * self[i].
+function leidenGraph(n, edges, self) {
+  const maps = Array.from({ length: n }, () => new Map());
+  for (const [a, b, w] of edges) {
+    if (a === b) { self[a] += w; continue; }
+    maps[a].set(b, (maps[a].get(b) || 0) + w);
+    maps[b].set(a, (maps[b].get(a) || 0) + w);
+  }
+  const adj = maps.map(m => [...m]);              // adj[i] = [[neighbour, weight], ...]
+  const k = new Float64Array(n);
+  for (let i = 0; i < n; i++) { let s = 2 * self[i]; for (const [, w] of adj[i]) s += w; k[i] = s; }
+  return { n, adj, self, k };
+}
+function relabel(part) {                          // community ids -> 0, 1, 2, ... (in place)
+  const ids = new Map();
+  for (let i = 0; i < part.length; i++) {
+    if (!ids.has(part[i])) ids.set(part[i], ids.size);
+    part[i] = ids.get(part[i]);
+  }
+  return part;
+}
+
+// Phase 1: move single nodes to the neighbouring community that raises modularity most, until nothing moves.
+// Only the neighbours of a node that moved are looked at again (queue), which makes it fast.
+function moveNodesFast(g, part, gamma, twoM, rng) {
+  const n = g.n;
+  const commK = new Float64Array(n), commCount = new Int32Array(n);
+  for (let i = 0; i < n; i++) { commK[part[i]] += g.k[i]; commCount[part[i]]++; }
+  const free = [];                                // ids of communities that became empty (may be stale: re-checked)
+  const queue = shuffled(n, rng), inQueue = new Uint8Array(n).fill(1);
+  for (let head = 0; head < queue.length; head++) {
+    const v = queue[head];
+    inQueue[v] = 0;
+    const cur = part[v], kv = g.k[v];
+    const wTo = new Map();                        // weight from v to each neighbouring community
+    for (const [u, w] of g.adj[v]) wTo.set(part[u], (wTo.get(part[u]) || 0) + w);
+    commK[cur] -= kv; commCount[cur]--;           // take v out of its community
+    if (commCount[cur] === 0) free.push(cur);
+    let best = cur, bestGain = (wTo.get(cur) || 0) - gamma * kv * commK[cur] / twoM;
+    for (const [c, w] of wTo) {
+      if (c === cur) continue;
+      const gain = w - gamma * kv * commK[c] / twoM;
+      if (gain > bestGain + 1e-12) { best = c; bestGain = gain; }
+    }
+    if (bestGain < -1e-12) {                      // even the best community is worse than being alone
+      let e;
+      while ((e = free.pop()) !== undefined && commCount[e] !== 0);
+      if (e !== undefined) { best = e; bestGain = 0; }
+    }
+    commK[best] += kv; commCount[best]++; part[v] = best;
+    if (best !== cur) {
+      for (const [u] of g.adj[v]) if (part[u] !== best && !inQueue[u]) { inQueue[u] = 1; queue.push(u); }
+    }
+  }
+  return relabel(part);
+}
+
+// Phase 2: refinement. Inside each community of `part`, start again from single nodes and merge only nodes
+// that are well connected to the community, choosing the target at random with probability growing with the
+// gain (temperature theta). This is what guarantees that every final community is connected.
+function refine(g, part, gamma, twoM, theta, rng) {
+  const n = g.n, eps = 1e-12;
+  const refined = Int32Array.from({ length: n }, (_, i) => i);
+  const refK = Float64Array.from(g.k), refSize = new Int32Array(n).fill(1);
+  const partK = new Float64Array(n);
+  for (let i = 0; i < n; i++) partK[part[i]] += g.k[i];
+  const ext = new Float64Array(n);                // weight from a refined community to the rest of its community
+  for (let v = 0; v < n; v++) for (const [u, w] of g.adj[v]) if (part[u] === part[v]) ext[v] += w;
+
+  for (const v of shuffled(n, rng)) {
+    if (refSize[refined[v]] !== 1) continue;      // already part of a bigger refined community
+    const S = part[v], kv = g.k[v];
+    if (ext[v] < gamma * kv * (partK[S] - kv) / twoM - eps) continue;   // not well connected to its community
+    const wTo = new Map();                        // weight from v to each refined community inside S
+    for (const [u, w] of g.adj[v]) if (part[u] === S) wTo.set(refined[u], (wTo.get(refined[u]) || 0) + w);
+    const options = [{ T: refined[v], gain: 0 }]; // staying alone is always possible
+    for (const [T, w] of wTo) {
+      if (T === refined[v]) continue;
+      if (ext[T] < gamma * refK[T] * (partK[S] - refK[T]) / twoM - eps) continue;   // T not well connected
+      const gain = w - gamma * kv * refK[T] / twoM;
+      if (gain >= 0) options.push({ T, gain });
+    }
+    if (options.length === 1) continue;
+    const top = Math.max(...options.map(o => o.gain));
+    const weights = options.map(o => Math.exp((o.gain - top) / theta));
+    let r = rng() * weights.reduce((a, b) => a + b, 0), pick = options[0];
+    for (let i = 0; i < options.length; i++) { r -= weights[i]; if (r <= 0) { pick = options[i]; break; } }
+    if (pick.T === refined[v]) continue;
+    const old = refined[v], T = pick.T;
+    ext[T] += ext[old] - 2 * wTo.get(T);          // the edges between v and T are internal from now on
+    refK[T] += kv; refSize[T]++; refSize[old] = 0; refined[v] = T;
+  }
+  return refined;
+}
+
+// Phase 3: one node per refined community.
+function aggregate(g, refined) {
+  const lab = relabel(Int32Array.from(refined)), m = Math.max(...lab) + 1;
+  const self = new Float64Array(m), edges = [];
+  for (let i = 0; i < g.n; i++) {
+    self[lab[i]] += g.self[i];
+    for (const [j, w] of g.adj[i]) {
+      if (j < i) continue;                        // each edge once
+      if (lab[i] === lab[j]) self[lab[i]] += w; else edges.push([lab[i], lab[j], w]);
+    }
+  }
+  return { graph: leidenGraph(m, edges, self), lab, m };
+}
+
+// n nodes, edges [[a, b, weight], ...]. Returns the community id of every node.
+function leiden(n, edges, { gamma = 1, theta = 0.01, seed = 1, maxLevels = 30 } = {}) {
+  const rng = mulberry32(seed);
+  let g = leidenGraph(n, edges, new Float64Array(n));
+  const twoM = g.k.reduce((a, b) => a + b, 0);
+  if (twoM === 0) return Int32Array.from({ length: n }, (_, i) => i);
+  const node = Int32Array.from({ length: n }, (_, i) => i);      // original node -> node of the current graph
+  let part = Int32Array.from({ length: n }, (_, i) => i);
+  for (let level = 0; level < maxLevels; level++) {
+    moveNodesFast(g, part, gamma, twoM, rng);
+    if (Math.max(...part) + 1 === g.n) break;     // every community is a single node: converged
+    const { graph, lab, m } = aggregate(g, refine(g, part, gamma, twoM, theta, rng));
+    if (m === g.n) break;                         // refinement merged nothing: stop
+    const next = new Int32Array(m);
+    for (let i = 0; i < g.n; i++) next[lab[i]] = part[i];        // aggregate nodes start in their old community
+    for (let o = 0; o < n; o++) node[o] = lab[node[o]];
+    g = graph; part = next;
+  }
+  return relabel(Int32Array.from(node, c => part[c]));
+}
+
 // Lower-case words made of letters (hyphenated words stay in one piece); apostrophes separate words.
 function tokenize(text) {
   return text.toLowerCase().match(/[\p{L}\p{M}]+(?:-[\p{L}\p{M}]+)*/gu) || [];
 }
 
-// The TOPIC_COUNT most frequent words of the text, each with its count and an example sentence.
-function topWords(text, title, n = TOPIC_COUNT, avoid = new Set()) {
+// Words worth counting: long enough, not a stop word, not a word of the title, not in `avoid`.
+function makeKeep(title, avoid = new Set()) {
   const stop = new Set(((STOPWORDS[WIKI_LANG] || "") + " " + BOILERPLATE).split(/\s+/).filter(Boolean));
   const minLen = STOPWORDS[WIKI_LANG] ? 3 : 4;
   const skip = new Set(EXCLUDE_TITLE_WORDS ? tokenize(title) : []);
-  const keep = w => w.length >= minLen && !stop.has(w) && !skip.has(w) && !avoid.has(w);
+  return w => w.length >= minLen && !stop.has(w) && !skip.has(w) && !avoid.has(w);
+}
+const splitSentences = text => text.replace(/([.!?])\s+/g, "$1\n").split(/\n+/).map(t => t.trim()).filter(Boolean);
+const clip = t => (t.length > 160 ? t.slice(0, 157).trimEnd() + "…" : t);
+const cap = w => w.charAt(0).toUpperCase() + w.slice(1);
+const byCount = (x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1);     // [word, count] pairs: most frequent first
 
-  const sentences = text.replace(/([.!?])\s+/g, "$1\n").split(/\n+/).map(t => t.trim()).filter(Boolean);
-  const counts = new Map();
-  for (const sentence of sentences)
-    for (const w of tokenize(sentence)) if (keep(w)) counts.set(w, (counts.get(w) || 0) + 1);
-
-  const top = [...counts].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1)).slice(0, n);
-  const wanted = new Set(top.map(([word]) => word));
-
-  // One pass to find an example sentence per word (a medium-length one if possible, else the first one).
+// For each wanted word, an example sentence (a medium-length one if possible, else the first one).
+function findExamples(sentences, wanted) {
   const good = new Map(), fallback = new Map();
   for (const sentence of sentences) {
     for (const w of new Set(tokenize(sentence))) {
@@ -431,13 +583,82 @@ function topWords(text, title, n = TOPIC_COUNT, avoid = new Set()) {
     }
     if (good.size === wanted.size) break;
   }
-  const clip = t => (t.length > 160 ? t.slice(0, 157).trimEnd() + "…" : t);
+  return word => good.get(word) || fallback.get(word);
+}
 
+// The n most frequent words, each with its count and an example sentence.
+function topWords(text, title, n = TOPIC_COUNT, avoid = new Set()) {
+  const keep = makeKeep(title, avoid);
+  const sentences = splitSentences(text);
+  const counts = new Map();
+  for (const sentence of sentences)
+    for (const w of tokenize(sentence)) if (keep(w)) counts.set(w, (counts.get(w) || 0) + 1);
+  const top = [...counts].sort(byCount).slice(0, n);
+  const example = findExamples(sentences, new Set(top.map(([word]) => word)));
   return top.map(([word, count]) => {
-    const example = good.get(word) || fallback.get(word);
     const items = [`Appears ${count} time${count === 1 ? "" : "s"} on the page`];
-    if (example) items.push(`“${clip(example)}”`);
-    return { title: word.charAt(0).toUpperCase() + word.slice(1), items, kind: "Frequent word" };
+    const ex = example(word);
+    if (ex) items.push(`“${clip(ex)}”`);
+    return { title: cap(word), items, kind: "Frequent word" };
+  });
+}
+
+// Topics as groups of related words: link the most frequent words that appear close to each other, let the
+// Leiden algorithm find the communities of that graph, and show the n biggest ones (by total occurrences),
+// each named after its most frequent word.
+function topClusters(text, title, n, avoid = new Set()) {
+  const keep = makeKeep(title, avoid);
+  const sentences = splitSentences(text);
+  const seqs = sentences.map(sentence => tokenize(sentence).filter(keep));
+  const counts = new Map();
+  for (const seq of seqs) for (const w of seq) counts.set(w, (counts.get(w) || 0) + 1);
+  const words = [...counts].filter(([, c]) => c >= 2).sort(byCount).slice(0, CLUSTER_WORDS);   // [word, count]
+  if (words.length < 6) return [];                // too little text to find groups
+  const index = new Map(words.map(([w], i) => [w, i]));
+
+  const weight = new Map();                       // co-occurrence graph: weight = how often two words are near each other
+  for (const seq of seqs) {
+    const ids = seq.filter(w => index.has(w)).map(w => index.get(w));
+    for (let p = 0; p < ids.length; p++) {
+      for (let q = p + 1; q < Math.min(ids.length, p + 1 + CLUSTER_WINDOW); q++) {
+        if (ids[p] === ids[q]) continue;
+        const key = Math.min(ids[p], ids[q]) * words.length + Math.max(ids[p], ids[q]);
+        weight.set(key, (weight.get(key) || 0) + 1);
+      }
+    }
+  }
+  const edges = [...weight].map(([key, w]) => [Math.floor(key / words.length), key % words.length, w]);
+  // Leiden at the chosen resolution. A group needs 3+ words to count as a real cluster. If fewer than n real
+  // clusters come out, try a finer resolution (up to two more times) and keep the attempt with the most.
+  const REAL = 3;
+  const realCount = groups => [...groups.values()].filter(list => list.length >= REAL).length;
+  let groups = null;
+  for (let attempt = 0, gamma = CLUSTER_RESOLUTION; attempt < 3; attempt++, gamma *= 1.5) {
+    const community = leiden(words.length, edges, { gamma, seed: 1 });
+    const candidate = new Map();                  // community id -> its words, already most frequent first
+    words.forEach((entry, i) => {
+      if (!candidate.has(community[i])) candidate.set(community[i], []);
+      candidate.get(community[i]).push(entry);
+    });
+    if (!groups || realCount(candidate) > realCount(groups)) groups = candidate;
+    if (realCount(groups) >= n) break;
+  }
+  // Real clusters first (biggest total first), then the small leftovers.
+  const clusters = [...groups.values()].map(list => ({ list, total: list.reduce((sum, [, c]) => sum + c, 0) }));
+  const rank = c => (c.list.length >= REAL ? 1 : 0);
+  clusters.sort((a, b) => rank(b) - rank(a) || b.total - a.total || (a.list[0][0] < b.list[0][0] ? -1 : 1));
+  const chosen = clusters.slice(0, n);
+  const example = findExamples(sentences, new Set(chosen.map(c => c.list[0][0])));
+
+  return chosen.map(c => {
+    const label = c.list[0][0];
+    const related = c.list.slice(1, 7).map(([w]) => w);
+    const items = [];
+    if (related.length) items.push(`Related words: ${related.join(", ")}`);
+    items.push(`${c.list.length} word${c.list.length === 1 ? "" : "s"}, ${c.total} occurrences`);
+    const ex = example(label);
+    if (ex) items.push(`“${clip(ex)}”`);
+    return { title: cap(label), items, kind: "Topic: group of related words", members: c.list.map(([w]) => w) };
   });
 }
 
@@ -476,13 +697,22 @@ function topHeaders(blocks) {
   return out.slice(0, TOPIC_COUNT);
 }
 
-// Headers first (page order); if there are fewer than TOPIC_COUNT, the most frequent words fill the rest.
+// Headers first (page order). If there are fewer than TOPIC_COUNT, the rest are topics found by Leiden clustering
+// of the page's words (finer and finer until there are enough); if that still leaves gaps, the most frequent words.
 function buildTopics(text, title) {
   const headers = topHeaders(parseSections(text));
   if (headers.length >= TOPIC_COUNT) return headers;
-  const avoid = new Set(headers.map(h => h.title.toLowerCase()));   // no word that is already a header
+  const avoid = new Set(headers.map(h => h.title.toLowerCase()));   // nothing that is already a header
   const body = text.split("\n").filter(line => !/^={2,6}.*={2,6}$/.test(line.trim())).join("\n");   // header lines are structure, not content
-  return headers.concat(topWords(body, title, TOPIC_COUNT - headers.length, avoid));
+  let topics = headers;
+  const used = new Set(avoid);
+  if (USE_LEIDEN) {
+    const clusters = topClusters(body, title, TOPIC_COUNT - headers.length, avoid);
+    clusters.forEach(cl => used.add(cl.title.toLowerCase()));          // a filler word must not repeat a cluster's name
+    topics = headers.concat(clusters);
+  }
+  if (topics.length < TOPIC_COUNT) topics = topics.concat(topWords(body, title, TOPIC_COUNT - topics.length, used));
+  return topics;
 }
 
 // Replaces the circles by new ones (same hover mechanism), re-spaces them equally, and fits the map.
