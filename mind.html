@@ -36,6 +36,10 @@
   #q { box-sizing: border-box; width: 100%; padding: 10px 16px; font: 16px system-ui, sans-serif; color: #111; background: #fff;
        border: 1px solid #cbd5e1; border-radius: 999px; box-shadow: 0 2px 8px #0001; outline: none; }
   #q:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #2563eb33; }
+  #trail { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; margin-top: 6px; max-height: 60px; overflow-y: auto; font-size: 12px; color: #64748b; }
+  #trail button { font: 12px system-ui, sans-serif; padding: 2px 9px; color: #111; background: #fff; border: 1px solid #cbd5e1; border-radius: 999px; cursor: pointer; }
+  #trail button:hover { border-color: #2563eb; }
+  #trail button.current { font-weight: 600; background: #dbeafe; border-color: #2563eb; cursor: default; }
   #qstatus { margin-top: 4px; min-height: 14px; text-align: center; font-size: 12px; color: #666; }
   @media (max-width: 700px), (pointer: coarse) {
     #help { display: none; }   /* no help line on mobile: the map gets the whole screen */
@@ -45,6 +49,7 @@
 <body>
 <div id="search">
   <input id="q" type="search" placeholder="Search Wikipedia, then press Enter" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search Wikipedia">
+  <div id="trail" aria-label="Ideas combined in the search"></div>
   <div id="qstatus" role="status"></div>
 </div>
 <canvas id="c"></canvas>
@@ -129,6 +134,7 @@ function measure() {                              // only the main node has a te
 // is long, or if there are so many circles that neighbours would touch.
 let ringR = 0;                                    // current radius of the ring of circles
 let ringSegs = [];                                // the outer ring: one clickable segment behind each circle
+let terms = [];                                   // the ideas combined so far: the first search, then one per ring click
 function layoutRing() {
   measure();
   const n = nodes.length - 1;
@@ -147,14 +153,17 @@ function layoutRing() {
   // example "Paris" + "Geography", which finds "Geography of Paris".
   const r1 = R + CIRCLE_R + RING_GAP, r2 = r1 + RING_THICK;
   const half = (n > 1 ? Math.PI / n : Math.PI) - 0.02;            // half the angle of a segment (a small gap between neighbours)
+  const base = terms.length ? terms : [nodes[0].title];            // the ideas combined so far (no limit on their number)
   ringSegs = nodes.slice(1).map((node, i) => {
     const a = -Math.PI / 2 + i * 2 * Math.PI / n, mid = (r1 + r2) / 2;
-    const query = `${nodes[0].title} ${node.title}`;
+    const dup = base.some(t => t.toLowerCase() === node.title.toLowerCase());   // already part of the combination
+    const next = [...base, node.title], query = next.join(" ");
     return {
-      id: "ring" + i, ring: true, node, a, half, r1, r2, query, placeholder: node.placeholder,
+      id: "ring" + i, ring: true, node, a, half, r1, r2, query, next, placeholder: !!node.placeholder || dup,   // "placeholder" = not clickable
       x: mid * Math.cos(a), y: mid * Math.sin(a), r: RING_THICK / 2,           // anchor of the dropdown
-      title: `${nodes[0].title} + ${node.title}`, kind: "Outer ring: main idea + this idea",
-      items: [`Searches Wikipedia for “${query}”`],
+      title: next.join(" + "),
+      kind: dup ? "Outer ring: already part of the search" : `Outer ring: adds this idea (${next.length} ideas combined)`,
+      items: dup ? [`“${node.title}” is already one of the combined ideas`] : [`Searches Wikipedia for “${query}”`],
     };
   });
 }
@@ -188,7 +197,8 @@ const actions = {
     const mapW = b.x1 - b.x0, mapH = b.y1 - b.y0;
     const cw = canvas.clientWidth, ch = canvas.clientHeight;
     const pad = IS_MOBILE ? 10 : 40;
-    const top = 76;                                // room for the search bar (and its message) at the top
+    const bar = document.getElementById("search").getBoundingClientRect();   // the search bar with its trail and message
+    const top = Math.max(76, bar.bottom - canvas.getBoundingClientRect().top + 12);   // room for it at the top
     const SHRINK = IS_MOBILE ? 1 : 0.9;            // desktop: a little air around the map
     const s = Math.max(Math.min((cw - 2 * pad) / mapW, (ch - top - pad) / mapH, 1.25), 0.05) * SHRINK;
     view.scale = s;
@@ -310,10 +320,14 @@ canvas.addEventListener("click", e => {
   if (!hit || hit.placeholder) { armed = null; return; }
   if (Date.now() - lastTouch < 1000 && armed !== hit.id) { armed = hit.id; return; }   // touch: the first tap only reveals
   armed = null;
-  const inContext = !!(hit.ring || (hit.isHeader && HEADER_CLICK_IN_CONTEXT));   // main idea + circle idea together
-  const query = hit.ring ? hit.query : inContext ? `${nodes[0].title} ${hit.title}` : hit.title;
-  qInput.value = query;
-  search(query, inContext);
+  if (hit.ring || (hit.isHeader && HEADER_CLICK_IN_CONTEXT)) {                  // add this idea to the combination
+    const next = hit.ring ? hit.next : [...(terms.length ? terms : [nodes[0].title]), hit.title];
+    qInput.value = next.join(" ");
+    search(qInput.value, true, next);
+  } else {                                                                      // a circle on its own: start over from its word
+    qInput.value = hit.title;
+    search(hit.title);
+  }
 });
 
 // The circle or outer-ring segment under a canvas pixel, or null.
@@ -784,7 +798,30 @@ function showTopic(title, topics) {
   actions.fit();
 }
 
-async function search(query, contextual = false) {
+const trailEl = document.getElementById("trail");
+
+// The combined ideas as small buttons: "Paris + History + Economy". Clicking an earlier one goes back to it.
+function renderTrail() {
+  trailEl.replaceChildren();
+  if (terms.length < 2) return;                   // a single idea is just the main node
+  terms.forEach((term, i) => {
+    if (i > 0) { const plus = document.createElement("span"); plus.textContent = "+"; trailEl.appendChild(plus); }
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.textContent = term;
+    if (i === terms.length - 1) chip.className = "current";
+    else chip.addEventListener("click", () => {
+      const back = terms.slice(0, i + 1);
+      qInput.value = back.join(" ");
+      search(qInput.value, back.length > 1, back);
+    });
+    trailEl.appendChild(chip);
+  });
+}
+
+// contextual: the query combines several ideas. newTerms: the combination to keep if the search succeeds
+// (without it, a successful search starts a new combination made of the page title alone).
+async function search(query, contextual = false, newTerms = null) {
   query = query.trim();
   if (!query) return;
   if (searchAbort) searchAbort.abort();           // a newer search replaces an older one still running
@@ -793,9 +830,16 @@ async function search(query, contextual = false) {
   qStatus.textContent = "Searching…";
   try {
     const title = await findWikipediaTitle(query, signal, contextual);
-    if (!title) { qStatus.textContent = `No Wikipedia page found for “${query}”`; return; }
+    if (!title) {
+      qStatus.textContent = newTerms && newTerms.length > 2
+        ? `No page matches all ${newTerms.length} ideas. Click an earlier one above to go back.`
+        : `No Wikipedia page found for “${query}”`;
+      return;
+    }
     qStatus.textContent = "Reading the page…";
     const topics = buildTopics(await fetchPlainText(title, signal), title);
+    terms = newTerms || [title];                  // before showTopic, whose outer ring is built from the combination
+    renderTrail();
     showTopic(title, topics);
     qStatus.textContent = topics.length ? "" : "This page has too little text to find topics";
   } catch (err) {
