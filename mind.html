@@ -55,7 +55,7 @@
 <canvas id="c"></canvas>
 <div id="tip"></div>
 
-<div id="help">view only · search bar: page title on the main node, its first 8 section headers around it (then word groups found with Leiden) · hover a circle for its content, click it to make it the main node, click the outer ring to search main node + circle · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
+<div id="help">view only · search bar: page title on the main node, its first 8 section headers around it (then word groups found with Leiden) · hover a circle for its content · click a circle or its outer-ring segment to go one level deeper (the main node becomes the whole path) · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
 
 <script>
 "use strict";
@@ -105,7 +105,7 @@ function ellipsize(text, maxW) {
   while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
   return t.trimEnd() + "…";
 }
-function wrapTitle(text, maxW) {
+function wrapTitle(text, maxW, maxLines = MAIN_MAX_LINES) {
   ctx.font = MAIN_FONT;
   const lines = [];
   let cur = "";
@@ -115,9 +115,9 @@ function wrapTitle(text, maxW) {
     else { lines.push(cur); cur = word; }
   }
   if (cur) lines.push(cur);
-  if (lines.length > MAIN_MAX_LINES) {            // too long: keep 3 lines and end the last one with "…"
-    lines.length = MAIN_MAX_LINES;
-    lines[MAIN_MAX_LINES - 1] += "…";
+  if (lines.length > maxLines) {                  // too long: keep 3 lines and end the last one with "…"
+    lines.length = maxLines;
+    lines[maxLines - 1] += "…";
   }
   return lines.map(l => ellipsize(l, maxW));
 }
@@ -134,7 +134,7 @@ function measure() {                              // only the main node has a te
 // is long, or if there are so many circles that neighbours would touch.
 let ringR = 0;                                    // current radius of the ring of circles
 let ringSegs = [];                                // the outer ring: one clickable segment behind each circle
-let terms = [];                                   // the ideas combined so far: the first search, then one per ring click
+let levels = [];                                  // the path so far, one entry per level: { label, page, text, topics }
 function layoutRing() {
   measure();
   const n = nodes.length - 1;
@@ -149,21 +149,19 @@ function layoutRing() {
     node.y = R * Math.sin(a);
   });
 
-  // Outer ring: a segment behind each circle. Clicking it looks up "<main node> <circle>" on Wikipedia, for
-  // example "Paris" + "Geography", which finds "Geography of Paris".
+  // Outer ring: a segment behind each circle. Clicking it does the same as clicking the circle: it goes one level
+  // deeper (the circle's idea joins the main node's path).
   const r1 = R + CIRCLE_R + RING_GAP, r2 = r1 + RING_THICK;
   const half = (n > 1 ? Math.PI / n : Math.PI) - 0.02;            // half the angle of a segment (a small gap between neighbours)
-  const base = terms.length ? terms : [nodes[0].title];            // the ideas combined so far (no limit on their number)
+  const base = levels.length ? levels.map(l => l.label) : [nodes[0].title];   // the path so far
   ringSegs = nodes.slice(1).map((node, i) => {
     const a = -Math.PI / 2 + i * 2 * Math.PI / n, mid = (r1 + r2) / 2;
-    const dup = base.some(t => t.toLowerCase() === node.title.toLowerCase());   // already part of the combination
-    const next = [...base, node.title], query = next.join(" ");
     return {
-      id: "ring" + i, ring: true, node, a, half, r1, r2, query, next, placeholder: !!node.placeholder || dup,   // "placeholder" = not clickable
+      id: "ring" + i, ring: true, node, a, half, r1, r2, placeholder: !!node.placeholder,   // "placeholder" = not clickable
       x: mid * Math.cos(a), y: mid * Math.sin(a), r: RING_THICK / 2,           // anchor of the dropdown
-      title: next.join(" + "),
-      kind: dup ? "Outer ring: already part of the search" : `Outer ring: adds this idea (${next.length} ideas combined)`,
-      items: dup ? [`“${node.title}” is already one of the combined ideas`] : [`Searches Wikipedia for “${query}”`],
+      title: [...base, node.title].join(" › "),
+      kind: "Outer ring: same as its circle",
+      items: ["Goes one level deeper: this idea joins the main node"],
     };
   });
 }
@@ -313,21 +311,15 @@ canvas.addEventListener("touchstart", e => {
   lastTouch = Date.now();
 }, { passive: true });
 
-// Clicking a circle makes it the main node: the same as searching for its word.
+// Clicking a circle (or the ring segment behind it) goes one level deeper: the idea joins the main node's path
+// ("Paris › History") and new circles appear for it.
 canvas.addEventListener("click", e => {
   if (dragged > 5) return;                        // that was a pan, not a click
   const m = mousePos(e), hit = targetAt(m.x, m.y);
   if (!hit || hit.placeholder) { armed = null; return; }
   if (Date.now() - lastTouch < 1000 && armed !== hit.id) { armed = hit.id; return; }   // touch: the first tap only reveals
   armed = null;
-  if (hit.ring || (hit.isHeader && HEADER_CLICK_IN_CONTEXT)) {                  // add this idea to the combination
-    const next = hit.ring ? hit.next : [...(terms.length ? terms : [nodes[0].title]), hit.title];
-    qInput.value = next.join(" ");
-    search(qInput.value, true, next);
-  } else {                                                                      // a circle on its own: start over from its word
-    qInput.value = hit.title;
-    search(hit.title);
-  }
+  descend(hit.ring ? hit.node : hit);
 });
 
 // The circle or outer-ring segment under a canvas pixel, or null.
@@ -379,8 +371,7 @@ function updateHover() {
     if (!hit.placeholder) {
       const hint = document.createElement("div");
       hint.className = "hint";
-      hint.textContent = hit.ring ? (IS_MOBILE ? "Tap again to search" : "Click to search")
-                               : (IS_MOBILE ? "Tap again to make it the main node" : "Click to make it the main node");
+      hint.textContent = IS_MOBILE ? "Tap again to go one level deeper" : "Click to go one level deeper";
       parts.push(hint);
     }
     tip.replaceChildren(...parts);
@@ -427,8 +418,7 @@ const USE_LEIDEN = true;                          // false: simply the most freq
 const CLUSTER_WORDS = 150;                        // how many of the most frequent words enter the word graph
 const CLUSTER_WINDOW = 5;                         // two words are linked when at most this many words apart in a sentence
 const CLUSTER_RESOLUTION = 1;                     // Leiden resolution: higher gives more, smaller groups
-const HEADER_MAX_LEVEL = 2;                       // 2 = main sections only ("== Title =="); 3 also takes subsections, and so on
-const HEADER_CLICK_IN_CONTEXT = false;            // false: clicking "History" looks up "History"; true: looks up "<main node> History"
+const HEADER_DEPTH = 1;                           // 1 = only the sections directly under the page (or under the clicked section); 2 also takes their subsections
 // Headers that make poor topics (links, references...). Lower-case. Empty a list to keep them.
 const SKIP_HEADERS = {
   en: ["see also", "references", "external links", "notes", "further reading", "bibliography", "sources", "citations",
@@ -447,21 +437,42 @@ async function wikiApi(params, signal) {
   return res.json();
 }
 
-// 1) the exact page (first letter case-insensitive, redirects followed); 2) otherwise the best full-text match
-// (for a combined "main idea + circle idea" query, the best of the first 5).
-async function findWikipediaTitle(query, signal, contextual = false) {
+// 1) the exact page (first letter case-insensitive, redirects followed); 2) otherwise the best full-text match.
+async function findWikipediaTitle(query, signal) {
   const exact = await wikiApi({ action: "query", titles: query, redirects: "1" }, signal);
   const page = exact.query && Object.values(exact.query.pages || {})[0];
   if (page && page.missing === undefined && page.invalid === undefined) return page.title;
-  const found = await wikiApi({ action: "query", list: "search", srsearch: query, srlimit: contextual ? "5" : "1" }, signal);
-  const hits = (found.query && found.query.search) || [];
-  if (!hits.length) return null;
-  if (!contextual) return hits[0].title;
-  // A combined query ("Paris Geography"): of the first 5 results prefer the title that holds most of its words
-  // ("Geography of Paris"); on a tie the better-ranked result wins.
-  const words = [...new Set(tokenize(query).filter(w => w.length >= 3))];
-  const score = h => words.filter(w => h.title.toLowerCase().includes(w)).length;
-  return hits.reduce((best, h) => (score(h) > score(best) ? h : best), hits[0]).title;
+  const found = await wikiApi({ action: "query", list: "search", srsearch: query, srlimit: "1" }, signal);
+  const hit = found.query && found.query.search && found.query.search[0];
+  return hit ? hit.title : null;
+}
+
+// A Wikipedia page dedicated to "<idea> of <page>": for the page "Paris" and the idea "History", "History of Paris".
+// Typical titles are tried first (one request); otherwise the best full-text result whose title names both the
+// page and the idea. Pages already on the path are skipped, so every level leads somewhere new. null if none.
+async function findRelatedPage(page, idea, visited, signal) {
+  const clean = text => text.replace(/[|\n]/g, " ").trim();
+  const p = clean(page), i = clean(idea);
+  const candidates = [`${i} of ${p}`, `${p} ${i}`, `${i} (${p})`, `${i} in ${p}`];
+  const data = await wikiApi({ action: "query", titles: candidates.join("|"), redirects: "1" }, signal);
+  const q = data.query || {};
+  const toMap = list => new Map((list || []).map(x => [x.from, x.to]));
+  const normalized = toMap(q.normalized), redirects = toMap(q.redirects);
+  const exists = new Set(Object.values(q.pages || {}).filter(pg => pg.missing === undefined && pg.invalid === undefined).map(pg => pg.title));
+  for (const c of candidates) {
+    const named = normalized.get(c) || c;
+    const name = redirects.get(named) || named;
+    if (exists.has(name) && !visited.has(name)) return name;
+  }
+  const found = await wikiApi({ action: "query", list: "search", srsearch: `${p} ${i}`, srlimit: "5" }, signal);
+  const keep = makeKeep("");
+  const pageWords = tokenize(p).filter(keep), ideaWords = tokenize(i).filter(keep);
+  for (const hit of (found.query && found.query.search) || []) {
+    const words = tokenize(hit.title);
+    if (visited.has(hit.title)) continue;
+    if (words.some(w => ideaWords.includes(w)) && words.some(w => pageWords.includes(w))) return hit.title;
+  }
+  return null;
 }
 
 // The whole page as plain text (no HTML, no infoboxes); section titles come as "== Title ==" lines.
@@ -747,12 +758,15 @@ function excerptOf(text) {
   return pick.length > 160 ? pick.slice(0, 157).trimEnd() + "…" : pick;
 }
 
-// The first TOPIC_COUNT section headers in page order (no duplicates, no "References" and the like).
+// The first TOPIC_COUNT section headers in page order (no duplicates, no "References" and the like). Only the
+// shallowest level counts, so inside a section these are its direct subsections.
 function topHeaders(blocks) {
   const skip = new Set(SKIP_HEADERS[WIKI_LANG] || []);
   const seen = new Set(), out = [];
+  const depths = blocks.filter(b => b.level >= 2 && b.title).map(b => b.level);
+  const top = depths.length ? Math.min(...depths) : 0;      // the shallowest header level: usually 2 for a page, deeper inside a section
   blocks.forEach((b, i) => {
-    if (b.level < 2 || b.level > HEADER_MAX_LEVEL || !b.title) return;
+    if (b.level < 2 || b.level < top || b.level > top + HEADER_DEPTH - 1 || !b.title) return;
     const key = b.title.toLowerCase();
     if (skip.has(key) || seen.has(key)) return;
     seen.add(key);
@@ -763,13 +777,15 @@ function topHeaders(blocks) {
   return out.slice(0, TOPIC_COUNT);
 }
 
+const bodyOf = text => text.split("\n").filter(line => !/^={2,6}.*={2,6}$/.test(line.trim())).join("\n");   // header lines are structure, not content
+
 // Headers first (page order). If there are fewer than TOPIC_COUNT, the rest are topics found by Leiden clustering
 // of the page's words (finer and finer until there are enough); if that still leaves gaps, the most frequent words.
 function buildTopics(text, title) {
   const headers = topHeaders(parseSections(text));
   if (headers.length >= TOPIC_COUNT) return headers;
   const avoid = new Set(headers.map(h => h.title.toLowerCase()));   // nothing that is already a header
-  const body = text.split("\n").filter(line => !/^={2,6}.*={2,6}$/.test(line.trim())).join("\n");   // header lines are structure, not content
+  const body = bodyOf(text);
   let topics = headers;
   const used = new Set(avoid);
   if (USE_LEIDEN) {
@@ -786,7 +802,7 @@ function showTopic(title, topics) {
   nodes[0].title = title;
   nodes.length = 1;
   topics.forEach((t, i) => nodes.push({
-    id: i + 1, title: t.title, items: t.items, kind: t.kind, isHeader: !!t.isHeader,
+    id: i + 1, title: t.title, items: t.items, kind: t.kind, isHeader: !!t.isHeader, members: t.members,
     x: 0, y: 0, parent: 0, r: CIRCLE_R, w: 2 * CIRCLE_R, h: 2 * CIRCLE_R,
   }));
   byId.clear();
@@ -800,28 +816,44 @@ function showTopic(title, topics) {
 
 const trailEl = document.getElementById("trail");
 
-// The combined ideas as small buttons: "Paris + History + Economy". Clicking an earlier one goes back to it.
+// The text of the main node: the whole path ("Paris › History › Roman era"). If it does not fit in 3 lines, the
+// oldest steps are dropped from the front ("… › History › Roman era"): the latest choice matters most.
+function pathLabel() {
+  const labels = levels.map(l => l.label);
+  for (let start = 0; start < labels.length; start++) {
+    const text = (start ? "… › " : "") + labels.slice(start).join(" › ");
+    if (wrapTitle(text, MAIN_MAX_W, 99).length <= MAIN_MAX_LINES) return text;
+  }
+  return "… › " + labels[labels.length - 1];
+}
+
+// The path as small buttons. Clicking an earlier step goes back to it (nothing is downloaded again).
 function renderTrail() {
   trailEl.replaceChildren();
-  if (terms.length < 2) return;                   // a single idea is just the main node
-  terms.forEach((term, i) => {
-    if (i > 0) { const plus = document.createElement("span"); plus.textContent = "+"; trailEl.appendChild(plus); }
+  if (levels.length < 2) return;                  // a single step is just the main node
+  levels.forEach((level, i) => {
+    if (i > 0) { const sep = document.createElement("span"); sep.textContent = "›"; trailEl.appendChild(sep); }
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.textContent = term;
-    if (i === terms.length - 1) chip.className = "current";
+    chip.textContent = level.label;
+    if (i === levels.length - 1) chip.className = "current";
     else chip.addEventListener("click", () => {
-      const back = terms.slice(0, i + 1);
-      qInput.value = back.join(" ");
-      search(qInput.value, back.length > 1, back);
+      if (searchAbort) searchAbort.abort();
+      levels.length = i + 1;
+      showLevel();
+      qStatus.textContent = "";
     });
     trailEl.appendChild(chip);
   });
 }
 
-// contextual: the query combines several ideas. newTerms: the combination to keep if the search succeeds
-// (without it, a successful search starts a new combination made of the page title alone).
-async function search(query, contextual = false, newTerms = null) {
+// Shows the last level of the path: its label on the main node, its topics around it.
+function showLevel() {
+  renderTrail();
+  showTopic(pathLabel(), levels[levels.length - 1].topics);
+}
+
+async function search(query) {
   query = query.trim();
   if (!query) return;
   if (searchAbort) searchAbort.abort();           // a newer search replaces an older one still running
@@ -829,21 +861,77 @@ async function search(query, contextual = false, newTerms = null) {
   const signal = searchAbort.signal;
   qStatus.textContent = "Searching…";
   try {
-    const title = await findWikipediaTitle(query, signal, contextual);
-    if (!title) {
-      qStatus.textContent = newTerms && newTerms.length > 2
-        ? `No page matches all ${newTerms.length} ideas. Click an earlier one above to go back.`
-        : `No Wikipedia page found for “${query}”`;
-      return;
-    }
+    const title = await findWikipediaTitle(query, signal);
+    if (!title) { qStatus.textContent = `No Wikipedia page found for “${query}”`; return; }
     qStatus.textContent = "Reading the page…";
-    const topics = buildTopics(await fetchPlainText(title, signal), title);
-    terms = newTerms || [title];                  // before showTopic, whose outer ring is built from the combination
-    renderTrail();
-    showTopic(title, topics);
+    const text = await fetchPlainText(title, signal);
+    const topics = buildTopics(text, title);
+    levels = [{ label: title, page: title, text, topics }];       // a new search starts a new path
+    showLevel();
     qStatus.textContent = topics.length ? "" : "This page has too little text to find topics";
   } catch (err) {
     if (err.name !== "AbortError") qStatus.textContent = "Search failed: check your connection and try again";
+  }
+}
+
+// The text of a section: its own lines, then its subsections (with their "=== Title ===" markers).
+function sectionText(blocks, index) {
+  const b = blocks[index], out = [...b.lines];
+  for (let j = index + 1; j < blocks.length && blocks[j].level > b.level; j++) {
+    const marks = "=".repeat(blocks[j].level);
+    out.push(`${marks} ${blocks[j].title} ${marks}`, ...blocks[j].lines);
+  }
+  return out.join("\n");
+}
+
+// Going deeper inside the current page when no page of its own exists for the idea. A section gives its text
+// (so its subsections become the new circles, then frequent words of its text); a word or topic gives the
+// sentences that mention it.
+function drillInPage(parent, node, pathText) {
+  let text = "";
+  if (node.isHeader) {
+    const blocks = parseSections(parent.text);
+    const i = blocks.findIndex(b => b.level >= 2 && b.title === node.title);
+    if (i >= 0) text = sectionText(blocks, i);
+  } else {
+    const members = new Set(node.members || [node.title.toLowerCase()]);
+    text = splitSentences(bodyOf(parent.text)).filter(sentence => tokenize(sentence).some(w => members.has(w))).join("\n");
+  }
+  return { text, topics: text ? buildTopics(text, pathText) : [] };
+}
+
+// Goes one level deeper into a circle. The main node becomes the whole path ("Paris › History › …"), and the new
+// circles come from the same algorithm as for a search: the sections, then frequent words if there are fewer than 8.
+// The text comes from a Wikipedia page of its own for "<current page> + <idea>" if there is one ("History of
+// Paris"), otherwise from inside the current page. Siblings stay independent: only the clicked idea is added.
+async function descend(node) {
+  if (!levels.length) return;
+  if (searchAbort) searchAbort.abort();
+  searchAbort = new AbortController();
+  const signal = searchAbort.signal;
+  const parent = levels[levels.length - 1];
+  const pathText = [...levels.map(l => l.label), node.title].join(" ");
+  qStatus.textContent = `Opening “${node.title}”…`;
+  try {
+    let page = parent.page, text = "", topics = [], note = "";
+    const related = await findRelatedPage(parent.page, node.title, new Set(levels.map(l => l.page)), signal);
+    if (related) {
+      qStatus.textContent = "Reading the page…";
+      const relatedText = await fetchPlainText(related, signal);
+      const relatedTopics = buildTopics(relatedText, pathText);
+      if (relatedTopics.length) { page = related; text = relatedText; topics = relatedTopics; note = `Wikipedia page: “${related}”`; }
+    }
+    if (!topics.length) {
+      ({ text, topics } = drillInPage(parent, node, pathText));
+      note = node.isHeader ? `Inside the section “${node.title}” of “${parent.page}”`
+                           : `Sentences of “${parent.page}” about “${node.title}”`;
+    }
+    if (!topics.length) { qStatus.textContent = `Nothing more to show for “${node.title}”`; return; }
+    levels.push({ label: node.title, page, text, topics });
+    showLevel();
+    qStatus.textContent = note;
+  } catch (err) {
+    if (err.name !== "AbortError") qStatus.textContent = "Could not open it: check your connection and try again";
   }
 }
 qInput.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) return search(qInput.value); });
