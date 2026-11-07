@@ -23,8 +23,9 @@
 <title>Mind map (view only)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
-  canvas#c { display: block; width: 100%; height: 100%; cursor: grab; }
-  #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
+  :root { --wiki-w: min(360px, 36vw); }              /* width of the Wikipedia panel on the left (0 on mobile, where it sits under the map) */
+  canvas#c { display: block; margin-left: var(--wiki-w); width: calc(100% - var(--wiki-w)); height: 100%; cursor: grab; }
+  #help { position: fixed; left: calc(var(--wiki-w) + 10px); bottom: 10px; font-size: 12px; color: #666; background: #fffc; padding: 6px 8px; border-radius: 6px; }
   #tip { position: fixed; display: none; z-index: 5; max-width: 280px; padding: 8px 14px 8px 10px; font-size: 13px; color: #111;
          background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 14px #0002; pointer-events: none; }
   #tip ul { margin: 0; padding-left: 18px; }
@@ -32,7 +33,7 @@
   #tip strong { display: block; margin-bottom: 4px; }
   #tip .hint { margin-top: 6px; font-size: 11px; color: #64748b; }
   #tip .kind { margin: -2px 0 4px; font-size: 11px; color: #64748b; }
-  #search { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(440px, calc(100% - 24px)); z-index: 10; }
+  #search { position: fixed; top: 12px; left: calc(50% + var(--wiki-w) / 2); transform: translateX(-50%); width: min(440px, calc(100% - var(--wiki-w) - 24px)); z-index: 10; }
   #q { box-sizing: border-box; width: 100%; padding: 10px 16px; font: 16px system-ui, sans-serif; color: #111; background: #fff;
        border: 1px solid #cbd5e1; border-radius: 999px; box-shadow: 0 2px 8px #0001; outline: none; }
   #q:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #2563eb33; }
@@ -41,8 +42,29 @@
   #trail button:hover { border-color: #2563eb; }
   #trail button.current { font-weight: 600; background: #dbeafe; border-color: #2563eb; cursor: default; }
   #qstatus { margin-top: 4px; min-height: 14px; text-align: center; font-size: 12px; color: #666; }
+  /* The Wikipedia page of the main node, in a panel on the left */
+  #wiki { position: fixed; left: 0; top: 0; bottom: 0; width: var(--wiki-w); box-sizing: border-box; display: flex; flex-direction: column; z-index: 4;
+          background: #fff; color: #111; border-right: 1px solid #e2e8f0; font: 14px/1.5 system-ui, sans-serif; }
+  #wikiHead { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; }
+  #wikiHead strong { display: block; font-size: 16px; }
+  #wikiHead a { font-size: 12px; color: #2563eb; }
+  #wikiBody { flex: 1; overflow-y: auto; padding: 8px 14px 24px; }
+  #wikiBody .empty { color: #64748b; }
+  #wikiBody img { max-width: 100%; height: auto; }
+  #wikiBody a { color: #2563eb; text-decoration: none; }
+  #wikiBody a:hover { text-decoration: underline; }
+  #wikiBody table { display: block; max-width: 100%; overflow-x: auto; font-size: 12px; }
+  #wikiBody .infobox, #wikiBody .thumb, #wikiBody figure { float: none !important; max-width: 100%; margin: 8px 0; }
+  #wikiBody h2, #wikiBody h3, #wikiBody h4 { margin: 1.1em 0 .4em; font-family: Georgia, serif; font-weight: normal; }
+  #wikiBody h2 { font-size: 1.35em; border-bottom: 1px solid #e2e8f0; }
+  #wikiBody .hatnote { font-style: italic; color: #475569; }
+  #wikiBody .focus { background: #fef9c3; }
   @media (max-width: 700px), (pointer: coarse) {
-    #help { display: none; }   /* no help line on mobile: the map gets the whole screen */
+    :root { --wiki-w: 0px; }
+    html, body { height: auto; overflow: visible; }                  /* the page scrolls: the map first, the Wikipedia page right under it */
+    #wiki { position: static; width: auto; height: 70vh; border-right: 0; border-top: 1px solid #e2e8f0; }
+    #search { position: absolute; }                                  /* scrolls away with the map instead of covering the page */
+    #help { display: none; }                                         /* no help line on mobile */
   }
 </style>
 </head>
@@ -54,6 +76,11 @@
 </div>
 <canvas id="c"></canvas>
 <div id="tip"></div>
+
+<div id="wiki">
+  <div id="wikiHead"><strong>Wikipedia</strong></div>
+  <div id="wikiBody"><p class="empty">Search for a topic: the Wikipedia page of the main node appears here.</p></div>
+</div>
 
 <div id="help">view only · search bar: page title on the main node, its first 8 section headers around it (then word groups found with Leiden) · hover a circle for its content · click a circle or its outer-ring segment to go one level deeper (the main node becomes the whole path) · mouse wheel: zoom · drag background: pan · R: fit to screen</div>
 
@@ -211,11 +238,17 @@ function resize() {
   canvas.width = canvas.clientWidth * dpr;
   canvas.height = canvas.clientHeight * dpr;
 }
-// Make the canvas exactly as tall as the space left in the window (below anything placed above it, if you add
-// a topbar again), so its bottom part is never cut off and the fit sees the real available height.
+// Desktop: the canvas is exactly as tall as the window, so nothing is cut off and the fit sees the real available height.
 function layoutCanvas() {
-  const top = Math.max(0, canvas.getBoundingClientRect().top);
-  canvas.style.height = Math.max(100, window.innerHeight - top) + "px";
+  const canvasTop = canvas.getBoundingClientRect().top;
+  let h = Math.max(100, window.innerHeight - Math.max(0, canvasTop));
+  if (IS_MOBILE) {
+    // Mobile: the map is only as tall as it needs; the Wikipedia page follows right under it and the page scrolls.
+    const b = bounds();
+    const barBottom = Math.max(76, document.getElementById("search").getBoundingClientRect().bottom - canvasTop + 12);
+    h = Math.ceil(barBottom + 10 + (canvas.clientWidth - 20) * (b.y1 - b.y0) / (b.x1 - b.x0) + 10);
+  }
+  canvas.style.height = h + "px";
   resize();
 }
 window.addEventListener("resize", () => { layoutCanvas(); if (IS_MOBILE) actions.fit(); });
@@ -811,6 +844,7 @@ function showTopic(title, topics) {
   armed = null;
   tip.dataset.node = "";
   layoutRing();
+  if (IS_MOBILE) layoutCanvas();                  // the trail may have changed the height of the search bar
   actions.fit();
 }
 
@@ -850,7 +884,99 @@ function renderTrail() {
 // Shows the last level of the path: its label on the main node, its topics around it.
 function showLevel() {
   renderTrail();
-  showTopic(pathLabel(), levels[levels.length - 1].topics);
+  const level = levels[levels.length - 1];
+  showTopic(pathLabel(), level.topics);
+  showWiki(level);
+}
+
+/* ---------- 6. THE WIKIPEDIA PAGE OF THE MAIN NODE (panel on the left, under the map on mobile) ---------- */
+const wikiHead = document.getElementById("wikiHead");
+const wikiBody = document.getElementById("wikiBody");
+const pageCache = new Map();                      // page title -> cleaned HTML
+let shownPage = null, wikiToken = 0;
+
+const wikiUrl = (page, anchor) => `https://${WIKI_LANG}.wikipedia.org/wiki/${encodeURIComponent(page.replace(/ /g, "_"))}`
+                                  + (anchor ? "#" + encodeURIComponent(anchor.replace(/ /g, "_")) : "");
+
+async function fetchPageHtml(page) {
+  const data = await wikiApi({ action: "parse", page, prop: "text", formatversion: "2", redirects: "1",
+                               disableeditsection: "1", disablelimitreport: "1", disabletoc: "1" });
+  if (!data.parse || typeof data.parse.text !== "string") throw new Error("no page text");
+  return data.parse.text;
+}
+
+// The page's HTML, made safe and tidy: no scripts or styles, no event handlers, no edit links, footnote marks,
+// navigation boxes, maps or reference lists; links open on Wikipedia in a new tab; images load lazily.
+function cleanWikiHtml(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll(
+    "script, style, link, meta, iframe, object, embed, form, input, button, select, textarea, noscript, svg, audio, video, " +
+    ".mw-editsection, .mw-kartographer-map, .navbox, .metadata, .noprint, .mw-empty-elt, sup.reference, .mw-cite-backlink, .reflist, .references"
+  ).forEach(el => el.remove());
+  for (const el of doc.body.querySelectorAll("*")) {
+    for (const attr of [...el.attributes]) {
+      if (/^on/i.test(attr.name) || attr.name === "style") el.removeAttribute(attr.name);
+    }
+  }
+  for (const a of doc.body.querySelectorAll("a[href]")) {
+    let href = a.getAttribute("href");
+    if (href.startsWith("//")) href = "https:" + href;
+    else if (href.startsWith("/")) href = `https://${WIKI_LANG}.wikipedia.org` + href;
+    if (/^https?:/i.test(href) && !a.classList.contains("new")) {      // "new" = a page that does not exist yet (red link)
+      a.setAttribute("href", href);
+      a.setAttribute("target", "_blank");
+      a.setAttribute("rel", "noopener noreferrer");
+    } else a.removeAttribute("href");                                  // in-page marks, red links, javascript: and so on
+  }
+  for (const img of doc.body.querySelectorAll("img")) {
+    for (const name of ["src", "srcset"]) {
+      const value = img.getAttribute(name);
+      if (value) img.setAttribute(name, value.replace(/(^|,\s*)\/\//g, "$1https://"));   // "//upload.wikimedia.org/..." -> https
+    }
+    img.setAttribute("loading", "lazy");
+  }
+  return doc.body.innerHTML;
+}
+
+// Scrolls the panel to a section (and highlights its heading), or back to the top.
+function scrollToSection(anchor) {
+  wikiBody.querySelectorAll(".focus").forEach(el => el.classList.remove("focus"));
+  wikiBody.scrollTop = 0;
+  if (!anchor) return;
+  const id = anchor.replace(/ /g, "_");
+  const target = [...wikiBody.querySelectorAll("[id]")].find(el => el.id === id);
+  if (!target) return;
+  const heading = target.closest(".mw-heading, h2, h3, h4, h5, h6") || target;
+  heading.classList.add("focus");
+  wikiBody.scrollTop = heading.getBoundingClientRect().top - wikiBody.getBoundingClientRect().top - 6;
+}
+
+async function showWiki(level) {
+  const token = ++wikiToken;                      // a newer level replaces an older one still loading
+  const { page, anchor } = level;
+  wikiHead.replaceChildren();
+  const title = document.createElement("strong");
+  title.textContent = anchor ? `${page} › ${anchor}` : page;
+  const link = document.createElement("a");
+  link.href = wikiUrl(page, anchor);
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "Open on Wikipedia ↗";
+  wikiHead.appendChild(title);
+  wikiHead.appendChild(link);
+  if (shownPage === page) { scrollToSection(anchor); return; }          // same page: only move to the section
+  wikiBody.textContent = "Loading the page…";
+  shownPage = null;
+  try {
+    let html = pageCache.get(page);
+    if (!html) { html = cleanWikiHtml(await fetchPageHtml(page)); pageCache.set(page, html); }
+    if (token !== wikiToken) return;
+    wikiBody.innerHTML = html;                    // safe: cleaned above
+    shownPage = page;
+    scrollToSection(anchor);
+  } catch (err) {
+    if (token === wikiToken) wikiBody.textContent = "The page could not be loaded here: use “Open on Wikipedia” above.";
+  }
 }
 
 async function search(query) {
@@ -866,7 +992,7 @@ async function search(query) {
     qStatus.textContent = "Reading the page…";
     const text = await fetchPlainText(title, signal);
     const topics = buildTopics(text, title);
-    levels = [{ label: title, page: title, text, topics }];       // a new search starts a new path
+    levels = [{ label: title, page: title, text, topics, anchor: null }];       // a new search starts a new path
     showLevel();
     qStatus.textContent = topics.length ? "" : "This page has too little text to find topics";
   } catch (err) {
@@ -927,7 +1053,9 @@ async function descend(node) {
                            : `Sentences of “${parent.page}” about “${node.title}”`;
     }
     if (!topics.length) { qStatus.textContent = `Nothing more to show for “${node.title}”`; return; }
-    levels.push({ label: node.title, page, text, topics });
+    // Where to scroll the Wikipedia panel: the clicked section if we stayed inside the page, otherwise the top.
+    const anchor = related && page === related ? null : node.isHeader ? node.title : parent.anchor;
+    levels.push({ label: node.title, page, text, topics, anchor });
     showLevel();
     qStatus.textContent = note;
   } catch (err) {
