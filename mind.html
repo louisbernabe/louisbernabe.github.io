@@ -23,8 +23,9 @@
 <title>Mind map (view only)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
+  :root { --tree-w: min(230px, 17vw); }              /* width of the search-path diagram on the right (0 on mobile, where it is hidden) */
   :root { --wiki-w: min(520px, 40vw); }              /* width of the Wikipedia panel on the left (0 on mobile, where it sits under the map) */
-  canvas#c { display: block; margin-left: var(--wiki-w); width: calc(100% - var(--wiki-w)); height: 100%; cursor: grab; }
+  canvas#c { display: block; margin-left: var(--wiki-w); margin-right: var(--tree-w); width: calc(100% - var(--wiki-w) - var(--tree-w)); height: 100%; cursor: grab; }
   #tip { position: fixed; display: none; z-index: 5; max-width: 280px; padding: 8px 14px 8px 10px; font-size: 13px; color: #111;
          background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 14px #0002; pointer-events: none; }
   #tip ul { margin: 0; padding-left: 18px; }
@@ -32,7 +33,7 @@
   #tip strong { display: block; margin-bottom: 4px; }
   #tip .hint { margin-top: 6px; font-size: 11px; color: #64748b; }
   #tip .kind { margin: -2px 0 4px; font-size: 11px; color: #64748b; }
-  #search { position: fixed; top: 12px; left: calc(50% + var(--wiki-w) / 2); transform: translateX(-50%); width: min(440px, calc(100% - var(--wiki-w) - 24px)); z-index: 10; }
+  #search { position: fixed; top: 12px; left: calc(50% + (var(--wiki-w) - var(--tree-w)) / 2); transform: translateX(-50%); width: min(440px, calc(100% - var(--wiki-w) - var(--tree-w) - 24px)); z-index: 10; }
   #q { box-sizing: border-box; width: 100%; padding: 10px 16px; font: 16px system-ui, sans-serif; color: #111; background: #fff;
        border: 1px solid #cbd5e1; border-radius: 999px; box-shadow: 0 2px 8px #0001; outline: none; }
   #q:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #2563eb33; }
@@ -58,8 +59,43 @@
   #wikiBody h2 { font-size: 1.35em; border-bottom: 1px solid #e2e8f0; }
   #wikiBody .hatnote { font-style: italic; color: #475569; }
   #wikiBody .focus { background: #fef9c3; }
+  /* The search path as a diagram on the right: first search at the top, each next idea nested one step further in */
+  #tree { position: fixed; right: 0; top: 0; bottom: 0; width: var(--tree-w); box-sizing: border-box; display: flex; flex-direction: column; z-index: 4;
+          background: linear-gradient(#f8fafc, #eef2f7); border-left: 1px solid #e2e8f0; color: #0f172a; font: 13px/1.35 system-ui, sans-serif; }
+  #treeHead { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; }
+  #treeHead strong { display: block; font-size: 15px; }
+  #treeHead small { color: #64748b; }
+  #treeLegend { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; color: #475569; }
+  #treeLegend .k { display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 50%; border: 1.5px solid #64748b; vertical-align: -1px; }
+  #treeLegend .k.page { background: #2563eb; border-color: #2563eb; }
+  #treeLegend .k.section { background: #475569; }
+  #treeLegend .k.word { border-style: dashed; background: #fff; }
+  #treeList { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 14px 12px 28px; }
+  #treeList .empty { color: #64748b; }
+  #treeList .step { position: relative; margin: 18px 0 0 calc(var(--d) * 14px); }
+  #treeList .step:first-child { margin-top: 0; }
+  #treeList .step::before { content: ""; position: absolute; left: -7px; top: -18px; width: 7px; height: 40px;           /* the elbow from the previous card */
+                            border-left: 2px solid #94a3b8; border-bottom: 2px solid #94a3b8; border-bottom-left-radius: 9px; }
+  #treeList .step:first-child::before { display: none; }
+  #treeList .step.flat::before { left: 7px; width: 0; height: 18px; border-bottom: 0; border-radius: 0; }   /* deepest steps stop indenting */
+  #treeList .card { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 10px 6px 8px;
+                    background: #fff; border: 1.5px solid #cbd5e1; border-radius: 10px; box-shadow: 0 1px 2px #0f172a14; cursor: pointer; }
+  #treeList .card:hover { border-color: #2563eb; }
+  #treeList .card:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+  #treeList .badge { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #e2e8f0; font-size: 11px; font-weight: 600; }
+  #treeList .txt { min-width: 0; }
+  #treeList .txt b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; }
+  #treeList .txt small { display: block; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; font-size: 11px; }
+  #treeList .page .card { border-color: #2563eb; }
+  #treeList .page .badge { background: #2563eb; color: #fff; }
+  #treeList .section .badge { background: #475569; color: #fff; }
+  #treeList .word .card { border-style: dashed; }
+  #treeList .word .badge { background: #fff; border: 1.5px dashed #64748b; }
+  #treeList .current .card { background: #eff6ff; border-color: #2563eb; box-shadow: 0 0 0 3px #2563eb26; cursor: default; }
+  html.desktop #trail { display: none; }                             /* the diagram replaces the small buttons under the search bar */
   @media (max-width: 700px), (pointer: coarse) {
-    :root { --wiki-w: 0px; }
+    :root { --wiki-w: 0px; --tree-w: 0px; }
+    #tree { display: none; }
     html, body { height: auto; overflow: visible; }                  /* the page scrolls: the map first, the Wikipedia page right under it */
     #wiki { position: static; width: auto; height: 70vh; border-right: 0; border-top: 1px solid #e2e8f0; }
     #search { position: absolute; }                                  /* scrolls away with the map instead of covering the page */
@@ -79,6 +115,15 @@
   <div id="wikiHead"><strong>Wikipedia</strong></div>
   <div id="wikiBody"><p class="empty">Search for a topic: the Wikipedia page of the main node appears here.</p></div>
 </div>
+
+<aside id="tree" aria-label="Search path">
+  <div id="treeHead">
+    <strong>Search path</strong>
+    <small>first search at the top, latest at the bottom</small>
+    <div id="treeLegend"><span><i class="k page"></i>page</span><span><i class="k section"></i>section</span><span><i class="k word"></i>word</span></div>
+  </div>
+  <ol id="treeList"><li class="empty">Your searches appear here, nested one inside the other.</li></ol>
+</aside>
 <script>
 "use strict";
 
@@ -116,6 +161,7 @@ const view = { x: 0, y: 0, scale: 1 };           // screen = view.pos + scale * 
 const MIN_SCALE = 0.1, MAX_SCALE = 5;
 // Phones and tablets (touch screens, narrow windows); same media query as the CSS above.
 const IS_MOBILE = window.matchMedia("(max-width: 700px), (pointer: coarse)").matches;
+document.documentElement.classList.add(IS_MOBILE ? "mobile" : "desktop");
 
 const MAIN_FONT = "bold 18px system-ui, sans-serif";
 const MAIN_MAX_W = 260, MAIN_MAX_LINES = 3, MAIN_LINE_H = 22;   // long titles wrap onto up to 3 lines
@@ -856,7 +902,15 @@ function pathLabel() {
   return "… › " + labels[labels.length - 1];
 }
 
-// The path as small buttons. Clicking an earlier step goes back to it (nothing is downloaded again).
+// Goes back to an earlier step of the path (its topics are restored from memory).
+function goToLevel(i) {
+  if (searchAbort) searchAbort.abort();
+  levels.length = i + 1;
+  showLevel();
+  qStatus.textContent = "";
+}
+
+// The path as small buttons (mobile; on desktop the diagram below does the same). Clicking an earlier step goes back to it.
 function renderTrail() {
   trailEl.replaceChildren();
   if (levels.length < 2) return;                  // a single step is just the main node
@@ -866,19 +920,52 @@ function renderTrail() {
     chip.type = "button";
     chip.textContent = level.label;
     if (i === levels.length - 1) chip.className = "current";
-    else chip.addEventListener("click", () => {
-      if (searchAbort) searchAbort.abort();
-      levels.length = i + 1;
-      showLevel();
-      qStatus.textContent = "";
-    });
+    else chip.addEventListener("click", () => goToLevel(i));
     trailEl.appendChild(chip);
   });
 }
 
 // Shows the last level of the path: its label on the main node, its topics around it.
+// The path as a diagram: one card per step, first search at the top, each next step nested one notch further in,
+// joined by elbow connectors. Cards are marked page / section / word, and clicking an earlier one goes back to it.
+const treeList = document.getElementById("treeList");
+function renderTree() {
+  treeList.replaceChildren();
+  const MAX_INDENT = 7;                           // deeper steps stop indenting so the cards stay readable
+  levels.forEach((level, i) => {
+    const current = i === levels.length - 1;
+    const step = document.createElement("li");
+    step.className = `step ${level.kind}` + (current ? " current" : "") + (i > MAX_INDENT ? " flat" : "");
+    step.style.setProperty("--d", String(Math.min(i, MAX_INDENT)));
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "card";
+    card.title = level.anchor ? `${level.page} › ${level.anchor}` : level.page;
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = String(i + 1);
+    const text = document.createElement("span");
+    text.className = "txt";
+    const name = document.createElement("b");
+    name.textContent = level.label;
+    const meta = document.createElement("small");
+    meta.textContent = level.meta;
+    text.appendChild(name);
+    text.appendChild(meta);
+    card.appendChild(badge);
+    card.appendChild(text);
+    if (current) card.setAttribute("aria-current", "step");
+    else card.addEventListener("click", () => goToLevel(i));
+    step.appendChild(card);
+    treeList.appendChild(step);
+  });
+  const now = treeList.querySelector(".current");
+  if (now && now.scrollIntoView) now.scrollIntoView({ block: "nearest" });
+}
+
 function showLevel() {
   renderTrail();
+  renderTree();
   const level = levels[levels.length - 1];
   showTopic(pathLabel(), level.topics);
   showWiki(level);
@@ -987,7 +1074,7 @@ async function search(query) {
     qStatus.textContent = "Reading the page…";
     const text = await fetchPlainText(title, signal);
     const topics = buildTopics(text, title);
-    levels = [{ label: title, page: title, text, topics, anchor: null }];       // a new search starts a new path
+    levels = [{ label: title, page: title, text, topics, anchor: null, kind: "page", meta: "Wikipedia page" }];   // a new search starts a new path
     showLevel();
     qStatus.textContent = topics.length ? "" : "This page has too little text to find topics";
   } catch (err) {
@@ -1059,7 +1146,9 @@ async function descend(node) {
     if (!topics.length) { qStatus.textContent = `Nothing more to show for “${node.title}”`; return; }
     // Where to scroll the Wikipedia panel: the clicked section if we stayed inside the page, otherwise the top.
     const anchor = related && page === related ? null : node.isHeader ? node.title : parent.anchor;
-    levels.push({ label: node.title, page, text, topics, anchor });
+    const kind = page !== parent.page ? "page" : node.isHeader ? "section" : "word";   // where its content comes from
+    const meta = kind === "page" ? `Page: ${page}` : kind === "section" ? `Section of ${parent.page}` : `Word in ${parent.page}`;
+    levels.push({ label: node.title, page, text, topics, anchor, kind, meta });
     showLevel();
     qStatus.textContent = note;
   } catch (err) {
