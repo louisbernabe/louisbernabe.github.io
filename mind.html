@@ -23,7 +23,7 @@
 <title>Mind map (view only)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
-  :root { --tree-w: min(230px, 17vw); }              /* width of the search-path diagram on the right (0 on mobile, where it is hidden) */
+  :root { --tree-w: min(210px, 16vw); }              /* room kept on the right for the search path (0 on mobile, where it is hidden) */
   :root { --wiki-w: min(520px, 40vw); }              /* width of the Wikipedia panel on the left (0 on mobile, where it sits under the map) */
   canvas#c { display: block; margin-left: var(--wiki-w); margin-right: var(--tree-w); width: calc(100% - var(--wiki-w) - var(--tree-w)); height: 100%; cursor: grab; }
   #tip { position: fixed; display: none; z-index: 5; max-width: 280px; padding: 8px 14px 8px 10px; font-size: 13px; color: #111;
@@ -59,39 +59,27 @@
   #wikiBody h2 { font-size: 1.35em; border-bottom: 1px solid #e2e8f0; }
   #wikiBody .hatnote { font-style: italic; color: #475569; }
   #wikiBody .focus { background: #fef9c3; }
-  /* The search path as a diagram on the right: first search at the top, each next idea nested one step further in */
-  #tree { position: fixed; right: 0; top: 0; bottom: 0; width: var(--tree-w); box-sizing: border-box; display: flex; flex-direction: column; z-index: 4;
-          background: linear-gradient(#f8fafc, #eef2f7); border-left: 1px solid #e2e8f0; color: #0f172a; font: 13px/1.35 system-ui, sans-serif; }
-  #treeHead { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; }
-  #treeHead strong { display: block; font-size: 15px; }
-  #treeHead small { color: #64748b; }
-  #treeLegend { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; color: #475569; }
-  #treeLegend .k { display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 50%; border: 1.5px solid #64748b; vertical-align: -1px; }
-  #treeLegend .k.page { background: #2563eb; border-color: #2563eb; }
-  #treeLegend .k.section { background: #475569; }
-  #treeLegend .k.word { border-style: dashed; background: #fff; }
-  #treeList { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 14px 12px 28px; }
-  #treeList .empty { color: #64748b; }
-  #treeList .step { position: relative; margin: 18px 0 0 calc(var(--d) * 14px); }
+  /* The search path on the right: a compact tree, one line per step, each next idea nested one notch further in */
+  #tree { position: fixed; top: 10px; right: 10px; width: calc(var(--tree-w) - 20px); max-height: calc(100vh - 20px); box-sizing: border-box; overflow-y: auto; z-index: 4;
+          padding: 8px 8px 8px 10px; background: #fffffff2; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 2px 8px #0f172a14;
+          color: #0f172a; font: 12.5px/1.2 system-ui, sans-serif; }
+  #treeHead { margin-bottom: 6px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #64748b; }
+  #treeList { list-style: none; margin: 0; padding: 0; }
+  #treeList .empty { color: #64748b; font-size: 12px; }
+  #treeList .step { position: relative; margin: 2px 0 0 calc(var(--d) * 14px); }
   #treeList .step:first-child { margin-top: 0; }
-  #treeList .step::before { content: ""; position: absolute; left: -7px; top: -18px; width: 7px; height: 40px;           /* the elbow from the previous card */
-                            border-left: 2px solid #94a3b8; border-bottom: 2px solid #94a3b8; border-bottom-left-radius: 9px; }
-  #treeList .step:first-child::before { display: none; }
-  #treeList .step.flat::before { left: 7px; width: 0; height: 18px; border-bottom: 0; border-radius: 0; }   /* deepest steps stop indenting */
-  #treeList .card { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 10px 6px 8px;
-                    background: #fff; border: 1.5px solid #cbd5e1; border-radius: 10px; box-shadow: 0 1px 2px #0f172a14; cursor: pointer; }
-  #treeList .card:hover { border-color: #2563eb; }
-  #treeList .card:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
-  #treeList .badge { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #e2e8f0; font-size: 11px; font-weight: 600; }
-  #treeList .txt { min-width: 0; }
-  #treeList .txt b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; }
-  #treeList .txt small { display: block; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; font-size: 11px; }
-  #treeList .page .card { border-color: #2563eb; }
-  #treeList .page .badge { background: #2563eb; color: #fff; }
-  #treeList .section .badge { background: #475569; color: #fff; }
-  #treeList .word .card { border-style: dashed; }
-  #treeList .word .badge { background: #fff; border: 1.5px dashed #64748b; }
-  #treeList .current .card { background: #eff6ff; border-color: #2563eb; box-shadow: 0 0 0 3px #2563eb26; cursor: default; }
+  #treeList .step::before { content: ""; position: absolute; left: -7px; top: -2px; width: 7px; height: 14px;            /* the elbow from the previous step */
+                            border-left: 1.5px solid #94a3b8; border-bottom: 1.5px solid #94a3b8; border-bottom-left-radius: 6px; }
+  #treeList .step:first-child::before, #treeList .step.flat::before { display: none; }                                  /* the deepest steps stop indenting */
+  #treeList .card { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; padding: 0 8px 0 3px; border-radius: 6px; cursor: pointer; }
+  #treeList .card:hover { background: #eef2ff; }
+  #treeList .card:focus-visible { outline: 2px solid #2563eb; }
+  #treeList .dot { flex: none; box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; }
+  #treeList .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #treeList .page .dot { background: #2563eb; }
+  #treeList .section .dot { background: #475569; }
+  #treeList .word .dot { border: 1.5px dashed #64748b; background: #fff; }
+  #treeList .current .card { background: #dbeafe; font-weight: 600; cursor: default; }
   html.desktop #trail { display: none; }                             /* the diagram replaces the small buttons under the search bar */
   @media (max-width: 700px), (pointer: coarse) {
     :root { --wiki-w: 0px; --tree-w: 0px; }
@@ -117,12 +105,8 @@
 </div>
 
 <aside id="tree" aria-label="Search path">
-  <div id="treeHead">
-    <strong>Search path</strong>
-    <small>first search at the top, latest at the bottom</small>
-    <div id="treeLegend"><span><i class="k page"></i>page</span><span><i class="k section"></i>section</span><span><i class="k word"></i>word</span></div>
-  </div>
-  <ol id="treeList"><li class="empty">Your searches appear here, nested one inside the other.</li></ol>
+  <div id="treeHead">Search path</div>
+  <ol id="treeList"><li class="empty">Your searches appear here.</li></ol>
 </aside>
 <script>
 "use strict";
@@ -926,12 +910,13 @@ function renderTrail() {
 }
 
 // Shows the last level of the path: its label on the main node, its topics around it.
-// The path as a diagram: one card per step, first search at the top, each next step nested one notch further in,
-// joined by elbow connectors. Cards are marked page / section / word, and clicking an earlier one goes back to it.
+// The path as a compact tree: one line per step, first search at the top, each next step nested one notch further in,
+// joined by small elbows. The dot shows where the step comes from (page / section / word); the tooltip says more.
+// Clicking an earlier step goes back to it.
 const treeList = document.getElementById("treeList");
 function renderTree() {
   treeList.replaceChildren();
-  const MAX_INDENT = 7;                           // deeper steps stop indenting so the cards stay readable
+  const MAX_INDENT = 7;                           // deeper steps stop indenting so the lines stay readable
   levels.forEach((level, i) => {
     const current = i === levels.length - 1;
     const step = document.createElement("li");
@@ -940,20 +925,14 @@ function renderTree() {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "card";
-    card.title = level.anchor ? `${level.page} › ${level.anchor}` : level.page;
-    const badge = document.createElement("span");
-    badge.className = "badge";
-    badge.textContent = String(i + 1);
-    const text = document.createElement("span");
-    text.className = "txt";
-    const name = document.createElement("b");
+    card.title = `${level.label} · ${level.meta}`;
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    const name = document.createElement("span");
+    name.className = "name";
     name.textContent = level.label;
-    const meta = document.createElement("small");
-    meta.textContent = level.meta;
-    text.appendChild(name);
-    text.appendChild(meta);
-    card.appendChild(badge);
-    card.appendChild(text);
+    card.appendChild(dot);
+    card.appendChild(name);
     if (current) card.setAttribute("aria-current", "step");
     else card.addEventListener("click", () => goToLevel(i));
     step.appendChild(card);
