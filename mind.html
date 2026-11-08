@@ -107,7 +107,6 @@ const SUBNODES = [                                   // PLACEHOLDERS shown until
 ];
 const RADIUS = 230;        // distance from the main node to the centre of each circle (grows by itself if needed)
 const CIRCLE_R = 26;       // radius of the circles
-const RING_GAP = 14, RING_THICK = 28;   // the clickable outer ring: gap after the circles, and its thickness
 
 // id 0 = main node; ids 1..N = circles. Positions are set by layoutRing() below.
 const nodes = [{ id: 0, title: MAIN_TITLE, lines: [], items: [], x: 0, y: 0, parent: null, w: 0, h: 40 }];
@@ -164,7 +163,6 @@ function measure() {                              // only the main node has a te
 // Equal spacing: circle i sits at angle -90° + i * 360° / N. The ring is made wider if the main node's label
 // is long, or if there are so many circles that neighbours would touch.
 let ringR = 0;                                    // current radius of the ring of circles
-let ringSegs = [];                                // the outer ring: one clickable segment behind each circle
 let levels = [];                                  // the path so far, one entry per level: { label, page, text, topics }
 function layoutRing() {
   measure();
@@ -180,21 +178,6 @@ function layoutRing() {
     node.y = R * Math.sin(a);
   });
 
-  // Outer ring: a segment behind each circle. Clicking it does the same as clicking the circle: it goes one level
-  // deeper (the circle's idea joins the main node's path).
-  const r1 = R + CIRCLE_R + RING_GAP, r2 = r1 + RING_THICK;
-  const half = (n > 1 ? Math.PI / n : Math.PI) - 0.02;            // half the angle of a segment (a small gap between neighbours)
-  const base = levels.length ? levels.map(l => l.label) : [nodes[0].title];   // the path so far
-  ringSegs = nodes.slice(1).map((node, i) => {
-    const a = -Math.PI / 2 + i * 2 * Math.PI / n, mid = (r1 + r2) / 2;
-    return {
-      id: "ring" + i, ring: true, node, a, half, r1, r2, placeholder: !!node.placeholder,   // "placeholder" = not clickable
-      x: mid * Math.cos(a), y: mid * Math.sin(a), r: RING_THICK / 2,           // anchor of the dropdown
-      title: [...base, node.title].join(" › "),
-      kind: "Outer ring: same as its circle",
-      items: ["Goes one level deeper: this idea joins the main node"],
-    };
-  });
 }
 
 // Bounding box of all nodes (world coordinates).
@@ -204,10 +187,6 @@ function bounds() {
   for (const n of nodes) {
     x0 = Math.min(x0, n.x - n.w / 2); x1 = Math.max(x1, n.x + n.w / 2);
     y0 = Math.min(y0, n.y - n.h / 2); y1 = Math.max(y1, n.y + n.h / 2);
-  }
-  if (ringSegs.length) {                          // the outer ring is centred on the main node (the origin)
-    const r2 = ringSegs[0].r2;
-    x0 = Math.min(x0, -r2); x1 = Math.max(x1, r2); y0 = Math.min(y0, -r2); y1 = Math.max(y1, r2);
   }
   return { x0, y0, x1, y1 };
 }
@@ -263,18 +242,6 @@ function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   ctx.transform(view.scale, 0, 0, view.scale, view.x, view.y);   // everything below is in world coordinates
-
-  // outer ring (clickable): a segment behind each circle
-  for (const seg of ringSegs) {
-    const hot = seg === hovered;
-    ctx.fillStyle = hot ? "#dbeafe" : "#f1f5f9";
-    ctx.strokeStyle = hot ? "#2563eb" : "#cbd5e1";
-    ctx.lineWidth = hot ? 3 : 1.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, seg.r2, seg.a - seg.half, seg.a + seg.half);
-    ctx.arc(0, 0, seg.r1, seg.a + seg.half, seg.a - seg.half, true);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-  }
 
   // links (drawn first, so the nodes cover their ends)
   ctx.strokeStyle = "#999";
@@ -348,39 +315,29 @@ canvas.addEventListener("touchstart", e => {
   lastTouch = Date.now();
 }, { passive: true });
 
-// Clicking a circle (or the ring segment behind it) goes one level deeper: the idea joins the main node's path
-// ("Paris › History") and new circles appear for it.
+// Clicking a circle goes one level deeper: the idea joins the main node's path ("Paris › History") and new
+// circles appear for it.
 canvas.addEventListener("click", e => {
   if (dragged > 5) return;                        // that was a pan, not a click
-  const m = mousePos(e), hit = targetAt(m.x, m.y);
+  const m = mousePos(e), hit = circleAt(m.x, m.y);
   if (!hit || hit.placeholder) { armed = null; return; }
   if (Date.now() - lastTouch < 1000 && armed !== hit.id) { armed = hit.id; return; }   // touch: the first tap only reveals
   armed = null;
-  descend(hit.ring ? hit.node : hit);
+  descend(hit);
 });
 
-// The circle or outer-ring segment under a canvas pixel, or null.
-function targetAt(sx, sy) {
+// The circle under a canvas pixel, or null.
+function circleAt(sx, sy) {
   const wx = (sx - view.x) / view.scale, wy = (sy - view.y) / view.scale;
   for (let i = nodes.length - 1; i >= 1; i--) {
     if (Math.hypot(wx - nodes[i].x, wy - nodes[i].y) <= nodes[i].r) return nodes[i];
-  }
-  if (ringSegs.length) {
-    const d = Math.hypot(wx, wy), angle = Math.atan2(wy, wx);
-    if (d >= ringSegs[0].r1 && d <= ringSegs[0].r2) {
-      for (const seg of ringSegs) {
-        let diff = Math.abs(angle - seg.a) % (2 * Math.PI);
-        if (diff > Math.PI) diff = 2 * Math.PI - diff;
-        if (diff <= seg.half) return seg;
-      }
-    }
   }
   return null;
 }
 
 // Runs every frame, so the hover stays correct even when the map moves under a still mouse (wheel zoom or pan).
 function updateHover() {
-  const hit = mouse.inside && !panning ? targetAt(mouse.x, mouse.y) : null;
+  const hit = mouse.inside && !panning ? circleAt(mouse.x, mouse.y) : null;
   hovered = hit;
   canvas.style.cursor = hit && !hit.placeholder ? "pointer" : "";   // "" = the stylesheet's grab cursor
   if (!hit) { tip.style.display = "none"; tip.dataset.node = ""; return; }
@@ -408,7 +365,8 @@ function updateHover() {
     if (!hit.placeholder) {
       const hint = document.createElement("div");
       hint.className = "hint";
-      hint.textContent = IS_MOBILE ? "Tap again to go one level deeper" : "Click to go one level deeper";
+      const path = [...(levels.length ? levels.map(l => l.label) : [nodes[0].title]), hit.title].join(" › ");   // where a click leads
+      hint.textContent = (IS_MOBILE ? "Tap again to go one level deeper" : "Click to go one level deeper") + ` → ${path}`;
       parts.push(hint);
     }
     tip.replaceChildren(...parts);
